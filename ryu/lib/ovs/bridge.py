@@ -39,6 +39,7 @@ class OVSBridgeNotFound(ryu_exc.RyuException):
 
 
 class VifPort(object):
+
     def __init__(self, port_name, ofport, vif_id, vif_mac, switch):
         super(VifPort, self).__init__()
         self.port_name = port_name
@@ -60,6 +61,7 @@ class VifPort(object):
 
 
 class TunnelPort(object):
+
     def __init__(self, port_name, ofport, tunnel_type, local_ip, remote_ip):
         super(TunnelPort, self).__init__()
         self.port_name = port_name
@@ -88,6 +90,7 @@ class TunnelPort(object):
 
 
 class OVSBridge(object):
+
     def __init__(self, CONF, datapath_id, ovsdb_addr, timeout=None,
                  exception=None):
         super(OVSBridge, self).__init__()
@@ -256,4 +259,16 @@ class OVSBridge(object):
         self.run_command([command])
         if command.result:
             return command.result[0]
+        return None
+
+    def add_qos(self, port_name, type='linux-htb', max_rate=None, queues=[]):
+        command_qos = ovs_vsctl.VSCtlCommand(
+            'add-qos',
+            [port_name, type, max_rate])
+        command_queue = ovs_vsctl.VSCtlCommand(
+            'set-queue',
+            [port_name, queues])
+        self.run_command([command_qos, command_queue])
+        if command_qos.result or command_queue.result:
+            return command_qos.result + command_queue.result
         return None
