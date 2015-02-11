@@ -23,6 +23,7 @@ if __name__ == "__main__":
                        hold_time = 15,
                        keep_alive = 180,
                        ldp_server_port = 646,
+                       enable_ints = ['10.1.1.1'],
                        neighbor_state_change_handler = neighbor_state_change
                        )
     #in_prefix = '10.0.0.0/8'

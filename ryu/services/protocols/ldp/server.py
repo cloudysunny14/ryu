@@ -10,6 +10,7 @@ from ryu.services.protocols.ldp.rtconf.common import DEFAULT_HOLD_TIME
 from ryu.services.protocols.ldp.rtconf.common import DEFAULT_KEEP_ALIVE
 from ryu.services.protocols.ldp.rtconf.common import DEFAULT_LDP_SERVER_PORT
 from ryu.services.protocols.ldp.rtconf.common import ROUTER_ID 
+from ryu.services.protocols.ldp.rtconf.common import ENABLE_INTS 
 from ryu.services.protocols.ldp.rtconf.common import HELLO_INTERVAL 
 from ryu.services.protocols.ldp.rtconf.common import KEEP_ALIVE 
 from ryu.services.protocols.ldp.rtconf.common import LDP_SERVER_PORT 
@@ -17,7 +18,7 @@ from ryu.services.protocols.bgp.base import Activity
 from ryu.services.protocols.bgp.protocol import Protocol
 
 class LDPServer(object):
-    def __init__(self,  router_id,
+    def __init__(self,  router_id, enable_ints,
         hello_interval = DEFAULT_HELLO_INTERVAL,
         hold_time = DEFAULT_HOLD_TIME,
         keep_alive = DEFAULT_KEEP_ALIVE,
@@ -27,9 +28,10 @@ class LDPServer(object):
 
         settings = {}
         settings[ROUTER_ID] = router_id
+        settings[ENABLE_INTS] = enable_ints
         settings[HELLO_INTERVAL] = hello_interval
         settings[KEEP_ALIVE] = keep_alive
-        settings[LDP_SERVER_PORT] = ldp_server_port 
+        settings[LDP_SERVER_PORT] = ldp_server_port
         self._core_start(settings)
         self._init_signal_listeners()
 
@@ -99,5 +101,6 @@ class LdpProtocol(Protocol, Activity):
     def connection_lost(self, reason):
         """Stops all timers and notifies peer that connection is lost.
         """
+
 
 

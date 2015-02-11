@@ -290,7 +290,7 @@ class Activity(object):
     def _listen_sockets_tcp(self, info):
         return None
 
-    def _recv_sockets_discovery(self, info, mcast_addr):
+    def _recv_sockets_discovery(self, info, mcast_int):
         listen_sockets = {}
         for res in info:
             af, socktype, proto, cannonname, sa = res
@@ -300,16 +300,14 @@ class Activity(object):
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 if hasattr(socket, "SO_REUSEPORT"):
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-                mreq = struct.pack("4sl",
-socket.inet_aton(mcast_addr), socket.INADDR_ANY)
-                sock.setsockopt(
-                    socket.IPPROTO_IP,
-                    socket.IP_ADD_MEMBERSHIP,
-                    mreq)
+                sock.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
+                    socket.inet_aton(sa[0]) + socket.inet_aton(mcast_int))
+                sock.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF,
+                    socket.inet_aton(mcast_int))
                 # TODO: confirm work with sock.bind(sa)
                 # sock.bind(sa)
-                sock.bind(('', 646))
-                listen_sockets[sa] = sock
+                sock.bind(sa)
+                listen_sockets[mcast_int] = sock
             except socket.error:
                  if sock:
                      sock.close()
@@ -368,11 +366,16 @@ socket.inet_aton(mcast_addr), socket.INADDR_ANY)
                             recv_sockets[sa], recv_handle)
         return server
 
-    def _discovery_socket(self, mcast_addr, loc_addr, recv_handle):
-        info = socket.getaddrinfo(None, loc_addr[1], socket.AF_UNSPEC,
+    def _discovery_socket(self, enable_ints, recv_addr, recv_handle):
+        recv_sockets = {}
+        for mcast_int in enable_ints:
+            info = socket.getaddrinfo(recv_addr[0], recv_addr[1], socket.AF_UNSPEC,
                                   socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        recv_sockets = self._recv_sockets_discovery(info,
-mcast_addr)
+            rs = self._recv_sockets_discovery(info, mcast_int)
+            print rs
+            recv_sockets.update(rs)
+
+        print str(recv_sockets)
         server = self._recv_server(recv_sockets, recv_handle)
 
         return server, recv_sockets
@@ -497,6 +500,6 @@ def validate(**kwargs):
 def get_validator(name):
     """Returns a validator registered for given name.
     """
-    print 'validator : %s' % str(_VALIDATORS)
     return _VALIDATORS.get(name)
+
 

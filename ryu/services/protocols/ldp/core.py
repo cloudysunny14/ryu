@@ -7,7 +7,6 @@ from ryu.services.protocols.ldp.server import LdpProtocol
 
 # Interface IP address on which to run bgp server. Core service listens on all
 # interfaces of the host on port 179 - standard bgp port.
-CORE_IP = '::'
 ALL_ROUTERS = '224.0.0.2'
 
 class CoreService(Factory, Activity):
@@ -67,10 +66,11 @@ class CoreService(Factory, Activity):
 
         # Reactively establish bgp-session with peer by listening on
         # server port for connection requests.
-        loc_addr = (CORE_IP, self._common_config.ldp_server_port)
+        recv_addr = (ALL_ROUTERS, self._common_config.ldp_server_port)
+        enable_ints = self._common_config.enable_ints
         waiter = kwargs.pop('waiter')
         waiter.set()
-        server_thread, sockets = self._discovery_socket(ALL_ROUTERS, loc_addr,
+        server_thread, sockets = self._discovery_socket(enable_ints, recv_addr,
                                                   self.start_protocol)
         self.listen_sockets = sockets
         server_thread.wait()
@@ -97,3 +97,4 @@ class CoreService(Factory, Activity):
         """
         assert hello 
         print hello
+

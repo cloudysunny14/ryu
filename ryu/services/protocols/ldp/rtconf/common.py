@@ -16,6 +16,7 @@ from ryu.services.protocols.ldp.rtconf.base import BaseConf
 from ryu.services.protocols.ldp.rtconf.base import BaseConfListener
 
 ROUTER_ID = 'router_id'
+ENABLE_INTS = 'enable_ints'
 HELLO_INTERVAL = 'hello_interval'
 HOLD_TIME = 'hold_time'
 KEEP_ALIVE = 'keep_alive'
@@ -59,6 +60,19 @@ def validate_router_id(router_id):
         raise ConfigValueError(desc='Invalid router id %s' % router_id)
 
     return router_id
+
+@validate(name=ENABLE_INTS)
+def validate_enable_ints(enable_ints):
+    if not enable_ints:
+        raise MissingRequiredConf(conf_name=ENABLE_INTS)
+
+    if not isinstance(enable_ints, list):
+        raise ConfigTypeError(conf_name=ROUTER_ID)
+    for addr in enable_ints:
+        if not is_valid_ipv4(addr):
+            raise ConfigValueError(desc='Invalid router id %s' % addr)
+
+    return enable_ints
 
 @validate(name=LABEL_RANGE)
 def validate_label_range(label_range):
@@ -118,7 +132,7 @@ class CommonConf(BaseConf):
 
     VALID_EVT = frozenset([CONF_CHANGED_EVT])
 
-    REQUIRED_SETTINGS = frozenset([ROUTER_ID])
+    REQUIRED_SETTINGS = frozenset([ROUTER_ID, ENABLE_INTS])
 
     OPTIONAL_SETTINGS = frozenset([HELLO_INTERVAL,
                                    HOLD_TIME,
@@ -142,13 +156,17 @@ class CommonConf(BaseConf):
             TCP_CONN_TIMEOUT, DEFAULT_TCP_CONN_TIMEOUT, **kwargs)
         self._settings[LABEL_RANGE] = compute_optional_conf(
             LABEL_RANGE, DEFAULT_LABEL_RANGE, **kwargs)
-        
+
     # =========================================================================
     # Required attributes
     # =========================================================================
     @property
     def router_id(self):
         return self._settings[ROUTER_ID]
+
+    @property
+    def enable_ints(self):
+        return self._settings[ENABLE_INTS]
 
     # =========================================================================
     # Optional attributes with valid defaults.
@@ -233,3 +251,4 @@ class CommonConfListener(BaseConfListener):
 
     def on_update_common_conf(self, evt):
         raise NotImplementedError('This method should be overridden.')
+
