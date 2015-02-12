@@ -15,15 +15,9 @@ class CoreService(Factory, Activity):
 
     def __init__(self, common_conf):
         self._common_config = common_conf
-
         Activity.__init__(self, name='core_service')
-
         self._signal_bus = LdpSignalBus()
         self._init_signal_listeners()
-
-        # Initialize sink for flexinet-peers
-        self._sinks = set()
-
         self._conf_manager = core_managers.ConfigurationManager(
             self, common_conf
         )
@@ -54,27 +48,16 @@ class CoreService(Factory, Activity):
         return self._signal_bus
 
     def _run(self, *args, **kwargs):
-        from ryu.services.protocols.ldp.processor import LdpProcessor
-        # Initialize ldp processor.
-        self._ldp_processor = LdpProcessor(self)
-        # Start BgpProcessor in a separate thread.
-        processor_thread = self._spawn_activity(self._ldp_processor)
-
-        # Pro-actively try to establish bgp-session with peers.
-        #for peer in self._peer_manager.iterpeers:
-        #    self._spawn_activity(peer, self.start_protocol)
-
-        # Reactively establish bgp-session with peer by listening on
-        # server port for connection requests.
         recv_addr = (ALL_ROUTERS, self._common_config.ldp_server_port)
         enable_ints = self._common_config.enable_ints
         waiter = kwargs.pop('waiter')
         waiter.set()
+
+
         server_thread, sockets = self._discovery_socket(enable_ints, recv_addr,
-                                                  self.start_protocol)
-        self.listen_sockets = sockets
+                                                  self.recv_hello)
+        self.receive_sockets = sockets
         server_thread.wait()
-        processor_thread.wait()
 
 
     def build_protocol(self, socket):
@@ -89,12 +72,12 @@ class CoreService(Factory, Activity):
         )
         return ldp_protocol 
 
-    def start_protocol(self, hello):
+    def recv_hello(self, hello):
         """Handler of new connection requests on bgp server port.
 
         Checks if new connection request is valid and starts new instance of
         protocol.
         """
         assert hello 
-        print hello
+
 

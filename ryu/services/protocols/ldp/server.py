@@ -102,5 +102,15 @@ class LdpProtocol(Protocol, Activity):
         """Stops all timers and notifies peer that connection is lost.
         """
 
+class LDPDiscoveryProtocol(Protocol, Activity):
+    def __init__(self, interface):
+        activity_name = ('LdpDiscoveryProtocol %s' 
+            % (interface))
+        Activity.__init__(self, name=activity_name)
+        # Intialize instance variables.
+        self._sendlock = semaphore.Semaphore()
+        self._hello_timer = self._create_timer();
 
+    def _send(self):
+        
 
