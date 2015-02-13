@@ -7,6 +7,7 @@ from ryu.services.protocols.ldp.server import LdpProtocol
 
 # Interface IP address on which to run bgp server. Core service listens on all
 # interfaces of the host on port 179 - standard bgp port.
+CORE_IP = '::'
 ALL_ROUTERS = '224.0.0.2'
 
 class CoreService(Factory, Activity):
@@ -21,6 +22,7 @@ class CoreService(Factory, Activity):
         self._conf_manager = core_managers.ConfigurationManager(
             self, common_conf
         )
+        self._hello = None
 
     def _init_signal_listeners(self):
         # TODO:Implemente ldp signal listener
@@ -49,25 +51,37 @@ class CoreService(Factory, Activity):
 
     def _run(self, *args, **kwargs):
         recv_addr = (ALL_ROUTERS, self._common_config.ldp_server_port)
-        enable_ints = self._common_config.enable_ints
+        #enable_ints = self._common_config.enable_ints
         waiter = kwargs.pop('waiter')
         waiter.set()
 
+        disc_thread, disc_sockets = self._discovery_socket(recv_addr, self.recv_hello)
 
-        server_thread, sockets = self._discovery_socket(enable_ints, recv_addr,
-                                                  self.recv_hello)
-        self.receive_sockets = sockets
-        server_thread.wait()
+        self.discover_sockets = disc_sockets
+        sess_addr = (CORE_IP, self._common_config.ldp_server_port)
+        sess_thread, sess_sockets = self._listen_tcp(sess_addr,
+                                                  self.start_protocol)
+        self.sess_sockets = sess_sockets
+        self._start_timers(15)
+        disc_thread.wait()
+        sess_thread.wait()
 
+    def _start_timers(self, hold_time):
+        hello_interval = hold_time / 3
+        print hello_interval
+        self._hello = self._create_timer('Hello Timer', self.send_hello)
+        self._hello.start(hello_interval, now=False)
+        # Setup the expire timer.
+        #self._expiry = self._create_timer('Holdtime Timer', self._expired)
+        #self._expiry.start(hold_time, now=False)
 
-    def build_protocol(self, socket):
-        assert socket
-        # Check if its a reactive connection or pro-active connection
-        _, remote_port = self.get_remotename(socket)
-        remote_port = int(remote_port)
+    def start_protocol(self, socket):
+        ldp_proto = self.build_protocol(socket)
+        self._spawn_activity(ldp_proto, socket)
 
+    def build_protocol(self, enable_int):
         ldp_protocol = self.protocol(
-            socket,
+            enable_int,
             self._signal_bus
         )
         return ldp_protocol 
@@ -79,5 +93,9 @@ class CoreService(Factory, Activity):
         protocol.
         """
         assert hello 
+
+    def send_hello(self):
+        print 'hello'
+        pass
 
 

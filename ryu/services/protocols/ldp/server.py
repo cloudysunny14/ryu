@@ -112,5 +112,5 @@ class LDPDiscoveryProtocol(Protocol, Activity):
         self._hello_timer = self._create_timer();
 
     def _send(self):
-        
+        pass        
 
