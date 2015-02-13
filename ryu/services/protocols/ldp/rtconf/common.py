@@ -189,6 +189,10 @@ class CommonConf(BaseConf):
         return self._settings[HELLO_INTERVAL]
 
     @property
+    def hold_time(self):
+        return self._settings[HOLD_TIME]
+
+    @property
     def ldp_server_port(self):
         return self._settings[LDP_SERVER_PORT]
 
@@ -251,4 +255,5 @@ class CommonConfListener(BaseConfListener):
 
     def on_update_common_conf(self, evt):
         raise NotImplementedError('This method should be overridden.')
+
 

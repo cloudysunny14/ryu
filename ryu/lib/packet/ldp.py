@@ -182,7 +182,6 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
 
     @classmethod
     def parser(cls, buf):
-        print ''.join('{:02x}'.format(x) for x in buf)
         ldp_hdr, rest = LDPHeader.parser(buf)
         (type_, msg_len, msg_id) = struct.unpack_from(cls._MSG_HDR_PACK_STR, buffer(rest))
         if len(rest) < msg_len:
