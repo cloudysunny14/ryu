@@ -35,6 +35,24 @@ LDP_TLV_IPV4_TRANSPORT_ADDRESS = 0x0401
 LDP_TLV_SIZE = 4
 LDP_TLV_TYPE_SIZE = 2
 
+class LdpExc(Exception):
+    """Base ldp exception."""
+
+    CODE = 0
+    """LDP error code."""
+
+    SUB_CODE = 0
+    """LDP error sub-code."""
+
+    SEND_ERROR = True
+    """Flag if set indicates Notification message should be sent to peer."""
+
+    def __init__(self, data=''):
+        self.data = data
+
+    def __str__(self):
+        return '<%s %r>' % (self.__class__.__name__, self.data)
+
 class LDPBasicTLV(StringifyMixin):
     """  """
     tlv_type = None
@@ -220,6 +238,12 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
             return tlv_cls
         return _set_type
 
+    @classmethod
+    def retrive_tlv(cls, tlv_type, msg):
+        for tlv in msg.tlvs:
+            if tlv_type == tlv.tlv_type:
+                return tlv
+        return None
 
 @LDPMessage.register_type(LDP_MSG_HELLO)
 class LDPHello(LDPMessage):

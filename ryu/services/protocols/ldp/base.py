@@ -290,7 +290,7 @@ class Activity(object):
     def _listen_sockets_tcp(self, info):
         return None
 
-    def _recv_sockets_discovery(self, info):
+    def _recv_sockets_discovery(self, info, iface):
         listen_sockets = {}
         for res in info:
             af, socktype, proto, cannonname, sa = res
@@ -299,13 +299,19 @@ class Activity(object):
                 sock = socket.socket(af, socktype, proto)
                 sock.setsockopt(socket.SOL_SOCKET,
                     socket.SO_REUSEADDR, 1)
+                sock.setsockopt(socket.SOL_IP,
+                    socket.IP_MULTICAST_LOOP, 0)
                 if hasattr(socket, "SO_REUSEPORT"):
                     sock.setsockopt(socket.SOL_SOCKET,
                         socket.SO_REUSEPORT, 1)
-                mreq = struct.pack('=4sl', socket.inet_aton(sa[0]), socket.INADDR_ANY)
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+                sock.setsockopt(socket.IPPROTO_IP,
+                    socket.IP_ADD_MEMBERSHIP,
+                    socket.inet_aton(sa[0]) + socket.inet_aton(iface))
+                sock.setsockopt(socket.SOL_IP,
+                    socket.IP_MULTICAST_IF,
+                    socket.inet_aton(iface))
                 sock.bind(sa)
-                listen_sockets[sa] = sock
+                listen_sockets[(iface, sa[1])] = sock
             except socket.error:
                  if sock:
                      sock.close()
@@ -364,10 +370,10 @@ class Activity(object):
                             recv_sockets[sa], recv_handle)
         return server
 
-    def _discovery_socket(self, recv_addr, recv_handle):
-        info = socket.getaddrinfo(recv_addr[0], recv_addr[1], socket.AF_UNSPEC,
+    def _discovery_socket(self, recv_addr, recv_handle, iface):
+        info = socket.getaddrinfo(recv_addr[0], recv_addr[1], socket.AF_INET,
                               socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        recv_sockets = self._recv_sockets_discovery(info)
+        recv_sockets = self._recv_sockets_discovery(info, iface)
         server = self._recv_server(recv_sockets, recv_handle)
         return server, recv_sockets
 
@@ -470,6 +476,97 @@ class Activity(object):
         # in a new thread.
         self._spawn(conn_name, conn_handler, sock)
         return sock
+
+#
+# Sink
+#
+class Sink(object):
+    """An entity to which we send out messages (eg. BGP routes)."""
+
+    #
+    # OutgoingMsgList
+    #
+    # A circular list type in which objects are linked to each
+    # other using the 'next_sink_out_route' and 'prev_sink_out_route'
+    # attributes.
+    #
+    OutgoingMsgList = None
+
+    # Next available index that can identify an instance uniquely.
+    idx = 0
+
+    @staticmethod
+    def next_index():
+        """Increments the sink index and returns the value."""
+        Sink.idx = Sink.idx + 1
+        return Sink.idx
+
+    def __init__(self):
+        # A small integer that represents this sink.
+        self.index = Sink.next_index()
+
+        # Event used to signal enqueing.
+        from utils.evtlet import EventletIOFactory
+        self.outgoing_msg_event = EventletIOFactory.create_custom_event()
+
+        self.messages_queued = 0
+        # List of msgs. that are to be sent to this peer. Each item
+        # in the list is an instance of OutgoingRoute.
+        self.outgoing_msg_list = Sink.OutgoingMsgList()
+
+    def clear_outgoing_msg_list(self):
+        self.outgoing_msg_list = Sink.OutgoingMsgList()
+
+    def enque_outgoing_msg(self, msg):
+        self.outgoing_msg_list.append(msg)
+        self.outgoing_msg_event.set()
+
+        self.messages_queued += 1
+
+    def enque_first_outgoing_msg(self, msg):
+        self.outgoing_msg_list.prepend(msg)
+        self.outgoing_msg_event.set()
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        """Pops and returns the first outgoing message from the list.
+
+        If message list currently has no messages, the calling thread will
+        be put to sleep until we have at-least one message in the list that
+        can be poped and returned.
+        """
+        # We pick the first outgoing available and send it.
+        outgoing_msg = self.outgoing_msg_list.pop_first()
+        # If we do not have any outgoing msg., we wait.
+        if outgoing_msg is None:
+            self.outgoing_msg_event.clear()
+            self.outgoing_msg_event.wait()
+            outgoing_msg = self.outgoing_msg_list.pop_first()
+
+        return outgoing_msg
+
+#
+# Source
+#
+class Source(object):
+    """An entity that gives us BGP routes. A BGP peer, for example."""
+
+    def __init__(self, version_num):
+        # Number that is currently being used to stamp information
+        # received from this source. We will bump this number up when
+        # the information that is now expected from the source belongs
+        # to a different logical batch. This mechanism can be used to
+        # identify stale information.
+        self.version_num = version_num
+
+
+class FlexinetPeer(Source, Sink):
+    def __init__(self):
+        # Initialize source and sink
+        Source.__init__(self, 1)
+        Sink.__init__(self)
 
 # Registry of validators for configuration/settings.
 _VALIDATORS = {}

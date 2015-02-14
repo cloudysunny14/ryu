@@ -16,7 +16,7 @@ from ryu.services.protocols.ldp.rtconf.base import BaseConf
 from ryu.services.protocols.ldp.rtconf.base import BaseConfListener
 
 ROUTER_ID = 'router_id'
-ENABLE_INTS = 'enable_ints'
+IFACE = 'iface'
 HELLO_INTERVAL = 'hello_interval'
 HOLD_TIME = 'hold_time'
 KEEP_ALIVE = 'keep_alive'
@@ -61,18 +61,15 @@ def validate_router_id(router_id):
 
     return router_id
 
-@validate(name=ENABLE_INTS)
-def validate_enable_ints(enable_ints):
-    if not enable_ints:
-        raise MissingRequiredConf(conf_name=ENABLE_INTS)
+@validate(name=IFACE)
+def validate_iface(iface):
+    if not iface:
+        raise MissingRequiredConf(conf_name=IFACE)
 
-    if not isinstance(enable_ints, list):
-        raise ConfigTypeError(conf_name=ROUTER_ID)
-    for addr in enable_ints:
-        if not is_valid_ipv4(addr):
-            raise ConfigValueError(desc='Invalid router id %s' % addr)
+    if not is_valid_ipv4(iface):
+        raise ConfigValueError(desc='Invalid iface %s' % iface)
 
-    return enable_ints
+    return iface
 
 @validate(name=LABEL_RANGE)
 def validate_label_range(label_range):
@@ -132,7 +129,7 @@ class CommonConf(BaseConf):
 
     VALID_EVT = frozenset([CONF_CHANGED_EVT])
 
-    REQUIRED_SETTINGS = frozenset([ROUTER_ID, ENABLE_INTS])
+    REQUIRED_SETTINGS = frozenset([ROUTER_ID, IFACE])
 
     OPTIONAL_SETTINGS = frozenset([HELLO_INTERVAL,
                                    HOLD_TIME,
@@ -165,8 +162,8 @@ class CommonConf(BaseConf):
         return self._settings[ROUTER_ID]
 
     @property
-    def enable_ints(self):
-        return self._settings[ENABLE_INTS]
+    def iface(self):
+        return self._settings[IFACE]
 
     # =========================================================================
     # Optional attributes with valid defaults.
