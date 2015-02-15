@@ -19,11 +19,11 @@ def neighbor_state_change(state):
 
 if __name__ == "__main__":
     server = LDPServer(router_id='1.1.1.1', 
+                       iface='10.1.1.1',
                        hello_interval = 5,
                        hold_time = 15,
                        keep_alive = 180,
                        ldp_server_port = 646,
-                       enable_ints = ['10.0.2.15'],
                        neighbor_state_change_handler = neighbor_state_change
                        )
     #in_prefix = '10.0.0.0/8'

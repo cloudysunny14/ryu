@@ -42,4 +42,16 @@ class Test_ldp(unittest.TestCase):
         eq_(str(msg), str(msg2))
         eq_(rest, '')
 
+    def test_init(self):
+        tlvs = [ldp.CommonSessionParameters(proto_ver=1, keepalive_time=15,
+                pvlim=0, max_pdu_len=0, receiver_lsr_id='2.2.2.2',
+                receiver_label_space_id=0, a_bit=0, d_bit=0)]
+        msg = ldp.LDPInit(router_id = '1.1.1.1', msg_id = 0, tlvs = tlvs)
+        binmsg = msg.serialize()
+        msg2, rest = ldp.LDPMessage.parser(binmsg)
+        eq_(str(msg), str(msg2))
+        eq_(rest, '')
+
+
+
 

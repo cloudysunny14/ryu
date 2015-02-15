@@ -8,7 +8,11 @@ from eventlet import semaphore
 
 from ryu.lib.packet import ldp
 from ryu.services.protocols.ldp.api.base import call
-
+from ryu.lib.packet.ldp import LDPNotification
+from ryu.lib.packet.ldp import LDP_MSG_NOTIFICATION
+from ryu.services.protocols.ldp.base import LDPSException
+from ryu.services.protocols.ldp.base import CORE_ERROR_CODE
+from ryu.services.protocols.ldp.base import add_ldp_error_metadata
 from ryu.services.protocols.ldp.core_manager import CORE_MANAGER
 from ryu.services.protocols.ldp.signals.emit import LdpSignalBus
 from ryu.services.protocols.ldp.rtconf.common import DEFAULT_HELLO_INTERVAL
@@ -23,12 +27,20 @@ from ryu.services.protocols.ldp.rtconf.common import LDP_SERVER_PORT
 from ryu.services.protocols.ldp.base import Activity
 from ryu.services.protocols.ldp.protocol import Protocol
 from ryu.services.protocols.ldp.constants import LDP_FSM_CONNECT
+from ryu.services.protocols.ldp.constants import LDP_FSM_PRESENT
 from ryu.services.protocols.ldp.constants import LDP_FSM_INIT_SENT
 
 LOG = logging.getLogger('ldp_server.server')
 
-LDP_MIN_MSG_LEN = 19
+LDP_MIN_MSG_LEN = 1000 
 LDP_MAX_MSG_LEN = 4096
+
+@add_ldp_error_metadata(code=CORE_ERROR_CODE, sub_code=2,
+                        def_desc='Unknown error occurred related to Speaker.')
+class LdpProtocolException(LDPSException):
+    """Base exception related to peer connection management.
+    """
+    pass
 
 class LDPServer(object):
     def __init__(self,  router_id, iface,
@@ -101,8 +113,7 @@ class LdpProtocol(Protocol, Activity):
     def _run(self, peer):
         # We know the peer we are connected to, we send open message.
         self._peer = peer
-        self.connection_made()
-
+        #self.connection_made()
         # We wait for peer to send messages.
         self._recv_loop()
 
@@ -116,6 +127,7 @@ class LdpProtocol(Protocol, Activity):
             while True:
                 next_bytes = self._socket.recv(required_len)
                 if len(next_bytes) == 0:
+                    print 'peer closed'
                     conn_lost_reason = 'Peer closed connection'
                     break
                 self.data_received(next_bytes)
@@ -200,6 +212,33 @@ class LdpProtocol(Protocol, Activity):
             # If we have a valid bgp message we call message handler.
             self._handle_msg(msg)
 
+    def _send_with_lock(self, msg):
+        self._sendlock.acquire()
+        print 'send init'
+        try:
+            self._socket.sendall(msg.serialize())
+        except socket.error as err:
+            print 'error occurs:%s' % (str(err))
+            self.connection_lost('failed to write to socket')
+        finally:
+            self._sendlock.release()
+
+    def send(self, msg):
+        if not self.started:
+            raise LdpProtocolException('Tried to send message to peer when '
+                                       'this protocol instance is not started'
+                                       ' or is no longer is started state.')
+        self._send_with_lock(msg)
+
+        if msg.type == LDP_MSG_NOTIFICATION:
+            LOG.error('Sent notification to %s >> %s' %
+                      (self._remotename, msg))
+
+            self._signal_bus.bgp_notification_sent(self._peer, msg)
+        else:
+            LOG.debug('Sent msg to %s >> %s' % (self._remotename, msg))
+
+
     def send_notification(self, code, subcode):
         """Utility to send notification message.
 
@@ -213,7 +252,7 @@ class LdpProtocol(Protocol, Activity):
         RFC ref: http://tools.ietf.org/html/rfc4486
         http://www.iana.org/assignments/bgp-parameters/bgp-parameters.xhtml
         """
-        notification = BGPNotification(code, subcode)
+        notification = LDPNotification(code, subcode)
         reason = notification.reason
         self._send_with_lock(notification)
         self._signal_bus.bgp_error(self._peer, code, subcode, reason)
@@ -227,18 +266,15 @@ class LdpProtocol(Protocol, Activity):
 
         We send bgp open message to peer and intialize related attributes.
         """
-        assert self._peer.state == LDP_FSM_CONNECT
+        #assert self._peer.state == LDP_FSM_PRESENT
         # We have a connection with peer we send open message.
-        open_msg = self._peer.create_init_msg()
-        self._holdtime = open_msg.hold_time
+        init_msg = self._peer.create_init_msg()
         self._peer.state = LDP_FSM_INIT_SENT
-        if not self.is_reactive:
-            self._peer.state.bgp_state = self.state
-        self.sent_open_msg = open_msg
-        self.send(open_msg)
-        self._peer.connection_made()
+        self.sent_init_msg = init_msg
+        self.send(init_msg)
 
     def connection_lost(self, reason):
         """Stops all timers and notifies peer that connection is lost.
         """
+
 

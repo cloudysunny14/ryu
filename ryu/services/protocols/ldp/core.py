@@ -1,6 +1,7 @@
 import socket
 from eventlet import semaphore
 from ryu.services.protocols.ldp.base import Activity
+from ryu.services.protocols.ldp.peer import Peer
 from ryu.services.protocols.ldp.protocol import Factory
 from ryu.services.protocols.ldp.signals.emit import LdpSignalBus 
 from ryu.services.protocols.ldp import core_managers
@@ -104,9 +105,10 @@ class CoreService(Factory, Activity):
 
     def start_protocol(self, socket):
         assert socket
+        print 'start proto'
         peer_addr, peer_port = self.get_remotename(socket)
         peer = self.peers.get(peer_addr, None)
-        if peer is None:
+        if peer is None or type(peer) == dict:
             peer = Peer(self._common_config, self.signal_bus, peer_addr)
             self.peers[peer_addr] = peer
         ldp_proto = self.build_protocol(socket)
@@ -126,15 +128,22 @@ class CoreService(Factory, Activity):
         assert hello
         msg, rest = LDPMessage.parser(hello)
         peer_router_id = msg.header.router_id
-        if ldp_utils.from_inet_ptoi(peer_router_id) < \
-              ldp_utils.from_inet_ptoi(self._router_id):
-            trans_addr = LDPMessage.retrive_tlv(ldp.LDP_TLV_IPV4_TRANSPORT_ADDRESS, msg)
-            if trans_addr is not None:
-                peer_addr = (trans_addr.addr, self._ldp_server_port)
-                bind_addr = (self._router_id, 0)
-                self._connect_tcp(peer_addr=peer_addr,
-                    conn_handler=self.start_protocol,
-                    bind_address=bind_addr)
+        # TODO: syncronization
+        peer = self.peers.get(peer_router_id, None)
+        if peer is not None:
+            pass
+        else:
+            #TEMPORARY IMPL
+            self.peers[peer_router_id] = {}
+            if ldp_utils.from_inet_ptoi(peer_router_id) < \
+                  ldp_utils.from_inet_ptoi(self._router_id):
+                trans_addr = LDPMessage.retrive_tlv(ldp.LDP_TLV_IPV4_TRANSPORT_ADDRESS, msg)
+                if trans_addr is not None:
+                    peer_addr = (trans_addr.addr, self._ldp_server_port)
+                    bind_addr = (self._router_id, 0)
+                    self._connect_tcp(peer_addr=peer_addr,
+                        conn_handler=self.start_protocol,
+                        bind_address=bind_addr)
 
     def send_hello(self):
         hold_time = self._common_config.hold_time
@@ -147,4 +156,5 @@ class CoreService(Factory, Activity):
                 tlvs=tlvs)
             self._hello_msg[hold_time] = msg
         self._send_with_lock(msg)
+
 

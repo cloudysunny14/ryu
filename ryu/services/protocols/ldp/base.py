@@ -326,6 +326,7 @@ class Activity(object):
             try:
                 sock = socket.socket(af, socktype, proto)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.setsockopt(socket.IPPROTO_IP, 10, 2)
                 if af == socket.AF_INET6:
                     sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
 
@@ -510,12 +511,9 @@ class Sink(object):
         self.outgoing_msg_event = EventletIOFactory.create_custom_event()
 
         self.messages_queued = 0
-        # List of msgs. that are to be sent to this peer. Each item
-        # in the list is an instance of OutgoingRoute.
-        self.outgoing_msg_list = Sink.OutgoingMsgList()
 
     def clear_outgoing_msg_list(self):
-        self.outgoing_msg_list = Sink.OutgoingMsgList()
+        pass
 
     def enque_outgoing_msg(self, msg):
         self.outgoing_msg_list.append(msg)
@@ -588,6 +586,7 @@ def get_validator(name):
     """Returns a validator registered for given name.
     """
     return _VALIDATORS.get(name)
+
 
 
 

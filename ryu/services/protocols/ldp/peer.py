@@ -8,9 +8,10 @@ from ryu.services.protocols.ldp import constants
 from ryu.services.protocols.ldp.base import Activity
 from ryu.services.protocols.ldp.base import Sink
 from ryu.services.protocols.ldp.base import Source
-from ryu.services.protocols.ldp.utils import stats
 from ryu.services.protocols.bgp.utils.evtlet import EventletIOFactory
-
+from ryu.lib.packet.ldp import LDPMessage
+from ryu.lib.packet.ldp import LDPInit
+from ryu.lib.packet.ldp import CommonSessionParameters
 #TODO:RPC Server
 #from ryu.services.protocols.ldp.net_ctrl import NET_CONTROLLER
 
@@ -48,6 +49,7 @@ class PeerState(object):
         self._signal_bus = signal_bus
 
         # TODO(JK): refactor other counters to use signals also
+        """
         self._signal_bus.register_listener(
             ('error', 'ldp', self.peer),
             self._remember_last_bgp_error
@@ -62,6 +64,7 @@ class PeerState(object):
             LdpSignalBus.LDP_NOTIFICATION_SENT + (self.peer,),
             lambda _, msg: self.incr(PeerCounterNames.SENT_NOTIFICATION)
         )
+        """
 
     def _remember_last_bgp_error(self, identifier, data):
         self._last_bgp_error = dict([(k, v)
@@ -160,7 +163,7 @@ class Peer(Source, Sink, Activity):
         # Current configuration of this peer.
         self._common_conf = common_conf
         self._signal_bus = signal_bus
-
+        self._router_id = common_conf.router_id
         self._peer_addr = peer_addr
         # Host Bind IP
         self._host_bind_ip = None
@@ -169,20 +172,23 @@ class Peer(Source, Sink, Activity):
         # TODO(PH): revisit maintaining state/stats information.
         # Peer state.
         self.state = PeerState(self, self._signal_bus)
-        self._periodic_stats_logger = \
-            self._create_timer('Peer State Summary Stats Timer',
-                               stats.log,
-                               stats_resource=self._neigh_conf,
-                               stats_source=self.state.get_stats_summary_dict)
-        if self._neigh_conf.stats_log_enabled:
-            self._periodic_stats_logger.start(self._neigh_conf.stats_time)
-
         # Bound protocol instance
         self._protocol = None
 
         # Setting this event starts the connect_loop loop again
         # Clearing this event will stop the connect_loop loop
         self._connect_retry_event = EventletIOFactory.create_custom_event()
+        self._keep_alive = common_conf.keep_alive
+
+    def _run(self):
+        pass
+
 
     def create_init_msg(self):
-        return None
+        tlvs = [CommonSessionParameters(proto_ver=1,
+                keepalive_time=self._keep_alive,
+                pvlim=0, max_pdu_len=0, receiver_lsr_id=self._peer_addr,
+                receiver_label_space_id=0, a_bit=0, d_bit=0)]
+        msg = LDPInit(router_id = self._router_id, msg_id = 1, tlvs = tlvs)
+        return msg
+

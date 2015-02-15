@@ -32,6 +32,7 @@ LDP_MSG_LABEL_ABORTREQ = 0x0404
 
 LDP_TLV_COMMON_HELLO_PARAM = 0x0400
 LDP_TLV_IPV4_TRANSPORT_ADDRESS = 0x0401
+LDP_TLV_COMMON_SESSION_PARAMETERS = 0x0500
 LDP_TLV_SIZE = 4
 LDP_TLV_TYPE_SIZE = 2
 
@@ -194,7 +195,7 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
     def __init__(self, type_, version=_VERSION, length = None, router_id='0.0.0.0',
                  label_space_id=0, msg_len=None, msg_id=0):
         self.header = LDPHeader(version, length, router_id, label_space_id)
-        self.type_ = type_
+        self.type = type_
         self.msg_len = msg_len
         self.msg_id = msg_id
 
@@ -215,7 +216,7 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
         # fixup
         tlvs = self.serialize_tlvs()
         self.msg_len = self._MSG_ID_LEN + len(tlvs)
-        msg = bytearray(struct.pack(self._MSG_HDR_PACK_STR, self.type_,
+        msg = bytearray(struct.pack(self._MSG_HDR_PACK_STR, self.type,
             self.msg_len, self.msg_id))
         self.header.length = len(msg) + len(tlvs)
         hdr = self.header.serialize()
@@ -251,6 +252,38 @@ class LDPHello(LDPMessage):
     def __init__(self, version=_VERSION, length=None, msg_len=None,
                  router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
         super(LDPHello, self).__init__(LDP_MSG_HELLO,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len)
+        self.tlvs = tlvs
+
+    @classmethod
+    def parser(cls, buf):
+        tlvs = []
+        while buf:
+            tlv_type = LDPBasicTLV.get_type(buf)
+            tlv = cls.get_tlv_type(tlv_type)(buf)
+            tlvs.append(tlv)
+            offset = LDP_TLV_SIZE + tlv.len
+            buf = buf[offset:]
+        # TODO: validate tlv types
+        #assert lldp_pkt._tlvs_len_valid()
+        #assert lldp_pkt._tlvs_valid()
+        return {
+            "tlvs": tlvs,
+        }, buf
+
+    def serialize_tlvs(self):
+        data = bytearray()
+        for tlv in self.tlvs:
+            data += tlv.serialize()
+
+        return data
+
+@LDPMessage.register_type(LDP_MSG_INIT)
+class LDPInit(LDPMessage):
+    """ """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
+        super(LDPInit, self).__init__(LDP_MSG_INIT,
             router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len)
         self.tlvs = tlvs
 
@@ -335,3 +368,58 @@ class IPv4TransportAddress(LDPBasicTLV):
         tlv = bytearray(struct.pack(self._PACK_STR, addr))
         self.len = len(tlv)
         return LDPBasicTLV.serialize(self) + tlv
+
+@LDPMessage.set_tlv_type(LDP_TLV_COMMON_SESSION_PARAMETERS)
+class CommonSessionParameters(LDPBasicTLV):
+    """
+           0                   1                   2                   3
+       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |0|0| Common Sess Parms (0x0500)|      Length                   |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      | Protocol Version              |      KeepAlive Time           |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |A|D|  Reserved |     PVLim     |      Max PDU Length           |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                 Receiver LDP Identifier                       |
+      +                               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                               |
+      -+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-++
+    """
+    _PACK_STR = '!HHBBH4sH'
+    _A_BIT_MASK = 0x80
+    _A_BIT_SHIFT = 7
+    _D_BIT_MASK = 0x40
+    _D_BIT_SHIFT = 6
+
+    def __init__(self, buf=None, *args, **kwargs):
+        super(CommonSessionParameters, self).__init__(buf, *args, **kwargs)
+        if buf:
+            (self.proto_ver, self.keepalive_time, reserved, 
+                self.pvlim, self.max_pdu_len, recv_lsr_id,
+                self.receiver_label_space_id) = struct.unpack(
+                    self._PACK_STR, self._tlv_info)
+            self.receiver_lsr_id = addrconv.ipv4.bin_to_text(recv_lsr_id)
+            self.a_bit = (reserved & self._A_BIT_MASK) >> self._A_BIT_SHIFT
+            self.d_bit = (reserved & self._D_BIT_MASK) >> self._D_BIT_SHIFT
+            self.reserved = reserved - (self.a_bit + self.d_bit)
+        else:
+            self.proto_ver = kwargs['proto_ver']
+            self.keepalive_time = kwargs['keepalive_time']
+            self.a_bit = kwargs['a_bit'] << self._A_BIT_SHIFT
+            self.d_bit = kwargs['d_bit'] << self._D_BIT_SHIFT
+            self.reserved = self.a_bit + self.d_bit
+            self.pvlim = kwargs['pvlim']
+            self.max_pdu_len = kwargs['max_pdu_len']
+            self.receiver_lsr_id = kwargs['receiver_lsr_id']
+            self.receiver_label_space_id = kwargs['receiver_label_space_id']
+
+    def serialize(self):
+        recv_lsr_id = addrconv.ipv4.text_to_bin(self.receiver_lsr_id)
+        tlv = bytearray(struct.pack(self._PACK_STR, self.proto_ver,
+            self.keepalive_time, self.reserved, self.pvlim,
+            self.max_pdu_len, recv_lsr_id,
+            self.receiver_label_space_id))
+        self.len = len(tlv)
+        return LDPBasicTLV.serialize(self) + tlv
+
