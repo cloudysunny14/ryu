@@ -275,7 +275,7 @@ class LDPInit(LDPMessage):
     def __init__(self, version=_VERSION, length=None, msg_len=None,
                  router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
         super(LDPInit, self).__init__(LDP_MSG_INIT,
-            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len)
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len, tlvs=tlvs)
 
 @LDPMessage.register_type(LDP_MSG_NOTIFICATION)
 class LDPNotification(LDPMessage):
