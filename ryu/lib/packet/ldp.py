@@ -193,11 +193,12 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
     _MSG_ID_LEN = 4
 
     def __init__(self, type_, version=_VERSION, length = None, router_id='0.0.0.0',
-                 label_space_id=0, msg_len=None, msg_id=0):
+                 label_space_id=0, msg_len=None, msg_id=0, tlvs=None):
         self.header = LDPHeader(version, length, router_id, label_space_id)
         self.type = type_
         self.msg_len = msg_len
         self.msg_id = msg_id
+        self.tlvs = tlvs
 
     @classmethod
     def parser(cls, buf):
@@ -206,11 +207,17 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
         if len(rest) < msg_len:
             raise stream_parser.StreamParser.TooSmallException(
                 '%d < %d' % (len(rest), msg_len))
-        rest = rest[cls._MSG_HDR_LEN:]
         subcls = cls._lookup_type(type_)
-        kwargs, rest = subcls.parser(rest)
-        kwargs.update(ldp_hdr)
-        return subcls(msg_len=msg_len, msg_id=msg_id, **kwargs), rest
+        rest = rest[cls._MSG_HDR_LEN:]
+        tlvs = []
+        while rest:
+            tlv_type = LDPBasicTLV.get_type(rest)
+            tlv = cls.get_tlv_type(tlv_type)(rest)
+            tlvs.append(tlv)
+            offset = LDP_TLV_SIZE + tlv.len
+            rest = rest[offset:]
+        return subcls(msg_len=msg_len, msg_id=msg_id,
+            tlvs=tlvs, **ldp_hdr), rest 
 
     def serialize(self):
         # fixup
@@ -221,6 +228,13 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
         self.header.length = len(msg) + len(tlvs)
         hdr = self.header.serialize()
         return hdr + msg + tlvs
+
+    def serialize_tlvs(self):
+        data = bytearray()
+        for tlv in self.tlvs:
+            data += tlv.serialize()
+
+        return data
 
     def __len__(self):
         # XXX destructive
@@ -252,31 +266,8 @@ class LDPHello(LDPMessage):
     def __init__(self, version=_VERSION, length=None, msg_len=None,
                  router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
         super(LDPHello, self).__init__(LDP_MSG_HELLO,
-            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len)
-        self.tlvs = tlvs
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len, tlvs=tlvs)
 
-    @classmethod
-    def parser(cls, buf):
-        tlvs = []
-        while buf:
-            tlv_type = LDPBasicTLV.get_type(buf)
-            tlv = cls.get_tlv_type(tlv_type)(buf)
-            tlvs.append(tlv)
-            offset = LDP_TLV_SIZE + tlv.len
-            buf = buf[offset:]
-        # TODO: validate tlv types
-        #assert lldp_pkt._tlvs_len_valid()
-        #assert lldp_pkt._tlvs_valid()
-        return {
-            "tlvs": tlvs,
-        }, buf
-
-    def serialize_tlvs(self):
-        data = bytearray()
-        for tlv in self.tlvs:
-            data += tlv.serialize()
-
-        return data
 
 @LDPMessage.register_type(LDP_MSG_INIT)
 class LDPInit(LDPMessage):
@@ -285,34 +276,19 @@ class LDPInit(LDPMessage):
                  router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
         super(LDPInit, self).__init__(LDP_MSG_INIT,
             router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len)
-        self.tlvs = tlvs
-
-    @classmethod
-    def parser(cls, buf):
-        tlvs = []
-        while buf:
-            tlv_type = LDPBasicTLV.get_type(buf)
-            tlv = cls.get_tlv_type(tlv_type)(buf)
-            tlvs.append(tlv)
-            offset = LDP_TLV_SIZE + tlv.len
-            buf = buf[offset:]
-        # TODO: validate tlv types
-        #assert lldp_pkt._tlvs_len_valid()
-        #assert lldp_pkt._tlvs_valid()
-        return {
-            "tlvs": tlvs,
-        }, buf
-
-    def serialize_tlvs(self):
-        data = bytearray()
-        for tlv in self.tlvs:
-            data += tlv.serialize()
-
-        return data
 
 @LDPMessage.register_type(LDP_MSG_NOTIFICATION)
 class LDPNotification(LDPMessage):
     """ TODO """
+
+@LDPMessage.register_type(LDP_MSG_LABEL_MAPPING)
+class LDPLabelMapping(LDPMessage):
+    """ """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
+        super(LDPLabelMapping, self).__init__(LDP_MSG_LABEL_MAPPING,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len)
+
 
 @LDPMessage.set_tlv_type(LDP_TLV_COMMON_HELLO_PARAM)
 class CommonHelloParameter(LDPBasicTLV):
