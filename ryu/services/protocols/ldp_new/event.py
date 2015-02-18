@@ -62,4 +62,18 @@ class EventLDPConfigReply(event.EventReplyBase):
         self.interface = interface
         self.config = config
 
+class EventLDPStateChanged(event.EventBase):
+    """
+    Event that this VRRP Router changed its state.
+    """
+    def __init__(self, instance_name, interface, config,
+                 old_state, new_state):
+        super(EventLDPStateChanged, self).__init__()
+        self.instance_name = instance_name
+        self.interface = interface
+        self.config = config
+        self.old_state = old_state
+        self.new_state = new_state
+
+
 handler.register_service('ryu.services.protocols.ldp.manager')

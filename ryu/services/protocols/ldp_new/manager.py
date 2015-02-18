@@ -17,7 +17,7 @@ class LDPManager(app_manager.RyuApp):
         self._args = args
         self._kwargs = kwargs
         self.name = ldp_event.LDP_MANAGER_NAME
-        #self.shutdown = hub.Queue()
+        self.shutdown = hub.Queue()
         self.interfaces = []
         self.peers = {} #key interface
         #self.session_thread = hub.spawn(self._session_thread)
@@ -30,7 +30,6 @@ class LDPManager(app_manager.RyuApp):
 
     @handler.set_ev_cls(ldp_event.EventLDPConfigRequest)
     def config_request_handler(self, ev):
-        print 'config request'
         config = ev.config
         iface_conf = ev.interface
         interface = self._new_interface(iface_conf, config)
@@ -81,7 +80,7 @@ class DiscoverServer(object):
         sock.setsockopt(socket.SOL_IP,
              socket.IP_MULTICAST_IF,
              socket.inet_aton(iface))
-        sock.bind((ALL_ROUTER, self.LDP_DISCOVERY_PORT))
+        sock.bind((ALL_ROUTER, LDP_DISCOVERY_PORT))
         self.socket = sock
 
     def start(self, handler):

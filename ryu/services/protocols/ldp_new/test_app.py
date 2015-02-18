@@ -23,26 +23,27 @@ PYTHONPATH=. ./bin/ryu-manager --verbose \
              ryu.services.protocols.vrrp.dumper \
              ryu.services.protocols.vrrp.sample_manager
 """
-
+from ryu.lib import hub
 from ryu.base import app_manager
-from ryu.services.protocols.ldp import api as ldp_api
+from ryu.services.protocols.ldp import ldp_api
 from ryu.services.protocols.ldp import event as ldp_event
 
-class RouterManager(app_manager.RyuApp):
-    
+class SampleManager(app_manager.RyuApp):
+
     def __init__(self, *args, **kwargs):
-        super(RouterManager, self).__init__(*args, **kwargs)
+        super(SampleManager, self).__init__(*args, **kwargs)
         self._args = args
         self._kwargs = kwargs
-        interface = ldp_event.LDPInterfaceConf(
-            primary_ip_address='10.0.2.15', device_name='eth0')
 
+        self._instances = {}
+
+    def start(self):
+        hub.spawn(self._main)
+
+    def _main(self):
+        interface = ldp_event.LDPInterfaceConf(
+            primary_ip_address='10.1.1.1', device_name='eth0')
         config = ldp_event.LDPConfig(router_id='1.1.1.1',
             ldp_port=646)
-        self.logger.debug('%s', interface)
-        rep = ldp_api.ldp_config(self, interface, config)
-        print rep
-
-    def _shutdown(self, ev):
-        pass
+        ldp_api.ldp_config(self, interface, config)
 
