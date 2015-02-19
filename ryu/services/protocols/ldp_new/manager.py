@@ -1,11 +1,18 @@
 import socket
-from eventlet import semaphore
+import netaddr
 
+from eventlet import semaphore
 from ryu.lib import hub
+from ryu.lib.hub import Timeout
 from ryu.base import app_manager
 from ryu.controller import handler
 from ryu.services.protocols.ldp import event as ldp_event
 from ryu.services.protocols.ldp.interface import LDPInterface 
+from ryu.services.protocols.ldp import ldp_util
+from ryu.services.protocols.ldp.peer import Peer
+
+from ryu.lib.packet import ldp
+from ryu.lib.packet.ldp import LDPMessage
 
 class LDPManager(app_manager.RyuApp):
     @staticmethod
@@ -18,8 +25,9 @@ class LDPManager(app_manager.RyuApp):
         self._kwargs = kwargs
         self.name = ldp_event.LDP_MANAGER_NAME
         self.shutdown = hub.Queue()
-        self.interfaces = []
+        self.interfaces = {}
         self.peers = {} #key interface
+        self.router_id = '0.0.0.0'
         #self.session_thread = hub.spawn(self._session_thread)
 
     def start(self):
@@ -32,16 +40,35 @@ class LDPManager(app_manager.RyuApp):
     def config_request_handler(self, ev):
         config = ev.config
         iface_conf = ev.interface
+        self.router_id = config.router_id
         interface = self._new_interface(iface_conf, config)
-        self.interfaces.append(interface)
+        self.interfaces[iface_conf.ip_address] = interface
         #TODO: delay timer
         interface.start()
         rep = ldp_event.EventLDPConfigReply(self._instance_name(config.router_id), interface, config)
         self.reply_to_request(ev, rep)
 
+    @handler.set_ev_cls(ldp_event.EventHelloReceived)
+    def hello_received(self, ev):
+        interface = ev.interface
+        packet = ev.packet
+        peer = self.peers.get(interface, None)
+        if peer is not None:
+            #TODO: peer hold
+            pass
+        else:
+            msg, rest = LDPMessage.parser(packet)
+            peer_router_id = msg.header.router_id
+            trans_addr = LDPMessage.retrive_tlv(ldp.LDP_TLV_IPV4_TRANSPORT_ADDRESS, msg)
+            peer = Peer(self, peer_router_id, trans_addr)
+            self.peers[interface] = peer
+            is_active = ldp_util.from_inet_ptoi(peer_router_id) < \
+                ldp_util.from_inet_ptoi(self.router_id)
+            hub.spawn(self._session_thread, is_active, peer)
+
     def _new_interface(self, iface_conf, conf):
         server = DiscoverServer(iface_conf.ip_address)
-        interface = LDPInterface(server, conf)
+        interface = LDPInterface(self, server, conf)
         return interface
 
     def _shutdown_loop(self):
@@ -52,6 +79,11 @@ class LDPManager(app_manager.RyuApp):
             app_mgr.uninstantiate(instance.monitor_name)
             del self._instances[instance.name]
 
+    def _session_thread(self, is_active, peer):
+        bind_addr = (self.router_id, LDP_DISCOVERY_PORT)
+        sess = SessionServer(bind_addr)
+        sess.start(is_active, peer.trans_addr, peer.conn_handle)
+
     def start_discover(self):
         pass
 
@@ -60,6 +92,30 @@ class LDPManager(app_manager.RyuApp):
 
 ALL_ROUTER = '224.0.0.2'
 LDP_DISCOVERY_PORT = 646
+DEFAULT_CONN_TIMEOUT = 30
+
+class SessionServer(object):
+
+    def __init__(self, bind_address):
+        sock = socket.socket(socket.AF_INET, 
+            socket.SOCK_STREAM)
+        if bind_address is not None:
+            sock.bind(bind_address)
+        self._socket = sock
+
+    def start(self, is_active, peer_addr, conn_handle):
+        if is_active:
+            with Timeout(DEFAULT_CONN_TIMEOUT, socket.error):
+                sock = self._socket.connect(peer_addr)
+            hub.spawn(conn_handle, sock)
+        else:
+            self._socket.listen(50)
+            hub.spawn(self._listen_loop, conn_handle)
+
+    def _listen_loop(self, conn_handle):
+        while True:
+            sock, client_address = self._socket.accept()
+            hub.spawn(conn_handle, sock)
 
 class DiscoverServer(object):
 
