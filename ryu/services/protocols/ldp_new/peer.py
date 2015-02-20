@@ -24,104 +24,100 @@ class LDPState(object):
         pass
 
     @abc.abstractmethod
-    def then(self):
+    def new_state(self):
         pass
 
     @abc.abstractmethod
     def state(self):
         pass
 
-class LDPStateNone(LDPState):
+class LDPStateNonExistent(LDPState):
     def action(self):
         pass
 
-    def then(self, event):
-        pass
-
-    def state(self):
-        pass
-
-class LDPActiveStatePresent(LDPState):
-    def action(self):
-        self.peer.send_init()
-
-    def then(self, event):
+    def new_state(self):
         return ldp_event.LDP_STATE_INITIAL
 
     def state(self):
-        return ldp_event.LDP_STATE_PRESENT
+        return ldp_event.LDP_STATE_NON_EXISTENT
 
 class LDPActiveStateInitial(LDPState):
     def action(self):
-        self.peer.send_keep_alive()
-        self.peer.start_keep_alive_timer()
-
-    def then(self, event):
-        return ldp_event.LDP_STATE_OPEN
-
-    def state(self):
-        return ldp_event.LDP_STATE_INITIAL
-
-class LDPActiveStateOpen(LDPState):
-    def action(self):
-        self.peer.reset_keep_alive()
-
-    def then(self, event):
-        return ldp_event.LDP_STATE_OPEN
-
-    def state(self):
-        return ldp_event.LDP_STATE_OPEN
-
-class LDPPassiveStatePresent(LDPState):
-    def action(self):
-        pass
-
-    def then(self, event):
         self.peer.send_init()
-        return ldp_event.LDP_STATE_INITIAL
+
+    def new_state(self):
+        return ldp_event.LDP_STATE_OPEN_SENT
 
     def state(self):
-        return ldp_event.LDP_STATE_PRESENT
+        return ldp_event.LDP_STATE_INITIAL
 
 class LDPPassiveStateInitial(LDPState):
     def action(self):
         pass
 
-    def then(self, event):
-        self.peer.send_keepalive()
-        return ldp_event.LDP_STATE_OPEN
+    def new_state(self):
+        return ldp_event.LDP_STATE_OPEN_REC
 
     def state(self):
         return ldp_event.LDP_STATE_INITIAL
 
-class LDPActiveStateOpen(LDPState):
+class LDPStateOpenSent(LDPState):
     def action(self):
-        self.peer.reset_keep_alive()
+        self.peer.send_keepalive()
+        self.peer.start_keepalive()
 
-    def then(self, event):
-        return ldp_event.LDP_STATE_OPEN
+    def new_state(self):
+        return ldp_event.LDP_STATE_OPERATIONAL
 
     def state(self):
-        return ldp_event.LDP_STATE_OPEN
+        return ldp_event.LDP_STATE_OPEN_SENT
+
+class LDPStateOpenRec(LDPState):
+    def action(self):
+        self.peer.send_init()
+        self.peer.send_keepalive()
+        self.peer.start_keepalive()
+        pass
+
+    def new_state(self):
+        return ldp_event.LDP_STATE_OPERATIONAL
+
+    def state(self):
+        return ldp_event.LDP_STATE_OPEN_REC
+
+class LDPStateOperational(LDPState):
+    def action(self):
+        pass
+
+    def new_state(self):
+        return ldp_event.LDP_STATE_NON_EXISTENT
+
+    def state(self):
+        return ldp_event.LDP_STATE_OPERATIONAL
 
 class Peer(object):
     _ACTIVE_STATE_MAP = {
-        ldp_event.LDP_STATE_PRESENT: LDPActiveStatePresent,
+        ldp_event.LDP_STATE_NON_EXISTENT: LDPStateNonExistent,
         ldp_event.LDP_STATE_INITIAL: LDPActiveStateInitial,
-        ldp_event.LDP_STATE_OPEN: LDPActiveStateOpen
+        ldp_event.LDP_STATE_OPEN_SENT: LDPStateOpenSent,
+        ldp_event.LDP_STATE_OPEN_REC: LDPStateOpenRec,
+        ldp_event.LDP_STATE_OPERATIONAL: LDPStateOperational,
     }
     _PASSIVE_STATE_MAP = {
-        ldp_event.LDP_STATE_PRESENT: LDPPassiveStatePresent,
+        ldp_event.LDP_STATE_NON_EXISTENT: LDPStateNonExistent,
+        ldp_event.LDP_STATE_PRESENT: LDPStateNonExistent,
         ldp_event.LDP_STATE_INITAL: LDPPassiveStateInitial,
-        ldp_event.LDP_STATE_OPEN: LDPPassiveStateOpen
+        ldp_event.LDP_STATE_OPEN_REC: LDPStateOpenRec,
+        ldp_event.LDP_STATE_OPERATIONAL: LDPStateOperational
     }
+
     def __init__(self, app, router_id, trans_addr):
         self._app = app
         self.router_id = router_id
         self.trans_addr = trans_addr
         self._socket = None
         self._recv_buff = ''
-        self._state = ldp_event.LDP_STATE_DOWN
+        self._state = ldp_event.LDP_STATE_NON_EXISTENT
         self._state_map = {}
         self._state_instance = None
 
@@ -132,7 +128,10 @@ class Peer(object):
             self._state_map = self._ACTIVE_STATE_MAP
         else:
             self._state_map = self._PASSIVE_STATE_MAP
-        self.state_change(ldp_event.LDP_STATE_PRESENT)
+        self.state_change(ldp_event.LDP_STATE_INITIAL)
+
+    def send_init(self):
+        
 
     def state_change(self, new_state):
         if self.state == new_state:
@@ -201,12 +200,30 @@ class Peer(object):
         msg_type = msg.type
         # state change by msg type
         # if initial recv, call then and current state change call
-        if msg_type == INITIAL:
-            if self.state != ldp_event.PRESENT:
-                raise()
-            new_state = self.state_impl.then()
-            self.change_state(new_state)
+        state_change = True
+        if msg_type == ldp.LDP_MSG_INIT:
+            if self.state != ldp_event.LDP_STATE_INITIAL:
+                # TODO: Notify
+                pass
+        elif msg_type == ldp.LDP_MSG_KEEPALIVE:
+            if self.state == ldp.LDP_MSG_OPERATIONAL:
+                state_change = False
+            elif self.state != ldp.LDP_MSG_OPEN_REC:
+                # TODO: Notiy
+                pass
+        elif msg_type == ldp.LDP_MSG_SHUTDOWN:
+            if self.state != ldp_event.LDP_STATE_OPERATIONAL:
+                #TODO: Notify
+                pass
+        else:
+            state_change = False
 
+        if state_change:
+            new_state = self.state_impl.new_state()
+            self.change_state(new_state)
+        else:
+            pass
+            #TODO: recv event send
 
     @staticmethod
     def parse_msg_header(buff):
@@ -216,4 +233,5 @@ class Peer(object):
     def connection_lost(self, reason):
         """Stops all timers and notifies peer that connection is lost.
         """
+
 

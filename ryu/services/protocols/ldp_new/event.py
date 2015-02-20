@@ -2,6 +2,12 @@ from ryu.lib import addrconv
 from ryu.controller import event
 from ryu.controller import handler
 
+LDP_STATE_NON_EXISTENT = 'existent'
+LDP_STATE_INITIAL = 'initial' ,
+LDP_STATE_OPEN_SENT = 'open_sent',
+LDP_STATE_OPEN_REC = 'open_rec'
+LDP_STATE_OPERATIONAL = 'operational'
+
 LDP_MANAGER_NAME = 'LDPManager'
 
 class LDPConfig(object):
