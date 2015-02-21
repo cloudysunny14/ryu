@@ -33,6 +33,7 @@ LDP_MSG_LABEL_ABORTREQ = 0x0404
 LDP_TLV_COMMON_HELLO_PARAM = 0x0400
 LDP_TLV_IPV4_TRANSPORT_ADDRESS = 0x0401
 LDP_TLV_COMMON_SESSION_PARAMETERS = 0x0500
+LDP_TLV_ADDRESS_LIST = 0x0101
 LDP_TLV_SIZE = 4
 LDP_TLV_TYPE_SIZE = 2
 
@@ -281,13 +282,66 @@ class LDPInit(LDPMessage):
 class LDPNotification(LDPMessage):
     """ TODO """
 
-@LDPMessage.register_type(LDP_MSG_LABEL_MAPPING)
-class LDPLabelMapping(LDPMessage):
+@LDPMessage.register_type(LDP_MSG_KEEPALIVE)
+class LDPKeepAlive(LDPMessage):
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
+        super(LDPKeepAlive, self).__init__(LDP_MSG_KEEPALIVE,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
+            tlvs=tlvs)
+
+@LDPMessage.register_type(LDP_MSG_ADDR)
+class LDPAddress(LDPMessage):
     """ """
     def __init__(self, version=_VERSION, length=None, msg_len=None,
                  router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
-        super(LDPLabelMapping, self).__init__(LDP_MSG_LABEL_MAPPING,
-            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len)
+        super(LDPAddress, self).__init__(LDP_MSG_ADDR,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
+            tlvs=tlvs)
+
+@LDPMessage.set_tlv_type(LDP_TLV_COMMON_HELLO_PARAM)
+class AddressList(LDPBasicTLV):
+    """
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |0|0| Address List (0x0101)     |      Length                   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |     Address Family            |                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
+   |                                                               |
+   |                        Addresses                              |
+   ~                                                               ~
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    """
+    _PACK_STR = '!H%ds'
+
+    def __init__(self, buf=None, *args, **kwargs):
+        super(AddressList, self).__init__(buf, *args, **kwargs)
+        if buf:
+            address_list_len = len(self._tlv_info) - struct.calcsize('H')
+            packstr = self._PACK_STR % (address_list_len)
+            (self.address_family, addresses) = struct.unpack(
+                packstr, self._tlv_info)
+            self.address_list = []
+            # currentry, support ipv4 address family.
+            address_len = struct.calcsize('4s')
+            while addresses:
+                addr = addresses[:address_len]
+                self.address_list.append(addrconv.ipv4.bin_to_text(addr))
+                addresses = addr
+        else:
+            self.address_family = kwargs['address_family']
+            self.address_list = kwargs['addresses']
+
+    def serialize(self):
+        tlv = bytearray(struct.pack('!H', self.address_family))
+        for addr in self.address_list:
+            addr = addrconv.ipv4.text_to_bin(addr)
+            tlv = tlv + addr
+        self.len = len(tlv)
+        return LDPBasicTLV.serialize(self) + tlv
 
 
 @LDPMessage.set_tlv_type(LDP_TLV_COMMON_HELLO_PARAM)

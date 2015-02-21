@@ -52,6 +52,11 @@ class Test_ldp(unittest.TestCase):
         eq_(str(msg), str(msg2))
         eq_(rest, '')
 
-
+    def test_keepalive(self):
+        msg = ldp.LDPKeepAlive(router_id='1.1.1.1', msg_id = 1, tlvs=[])
+        binmsg = msg.serialize()
+        msg2, rest = ldp.LDPMessage.parser(binmsg)
+        eq_(str(msg), str(msg2))
+        eq_(rest, '')
 
 

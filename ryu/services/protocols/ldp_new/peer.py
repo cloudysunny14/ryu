@@ -4,8 +4,10 @@ import traceback
 import struct
 import abc
 import six
-
+from eventlet import semaphore
+from ryu.lib import hub
 from ryu.services.protocols.ldp import event as ldp_event
+from ryu.services.protocols.ldp.ldp_util import EventletIOFactory
 
 from ryu.lib.packet import ldp
 from ryu.lib.packet.ldp import LDPMessage
@@ -64,7 +66,7 @@ class LDPPassiveStateInitial(LDPState):
 class LDPStateOpenSent(LDPState):
     def action(self):
         self.peer.send_keepalive()
-        self.peer.start_keepalive()
+        self.peer.start_keepalive_timeout()
 
     def new_state(self):
         return ldp_event.LDP_STATE_OPERATIONAL
@@ -76,7 +78,7 @@ class LDPStateOpenRec(LDPState):
     def action(self):
         self.peer.send_init()
         self.peer.send_keepalive()
-        self.peer.start_keepalive()
+        self.peer.start_keepalive_timeout()
         pass
 
     def new_state(self):
@@ -96,6 +98,7 @@ class LDPStateOperational(LDPState):
         return ldp_event.LDP_STATE_OPERATIONAL
 
 class Peer(object):
+
     _ACTIVE_STATE_MAP = {
         ldp_event.LDP_STATE_NON_EXISTENT: LDPStateNonExistent,
         ldp_event.LDP_STATE_INITIAL: LDPActiveStateInitial,
@@ -105,33 +108,62 @@ class Peer(object):
     }
     _PASSIVE_STATE_MAP = {
         ldp_event.LDP_STATE_NON_EXISTENT: LDPStateNonExistent,
-        ldp_event.LDP_STATE_PRESENT: LDPStateNonExistent,
-        ldp_event.LDP_STATE_INITAL: LDPPassiveStateInitial,
+        ldp_event.LDP_STATE_INITIAL: LDPPassiveStateInitial,
         ldp_event.LDP_STATE_OPEN_REC: LDPStateOpenRec,
         ldp_event.LDP_STATE_OPERATIONAL: LDPStateOperational
     }
 
-    def __init__(self, app, router_id, trans_addr):
+    def __init__(self, app, peer_router_id, trans_addr, conf):
         self._app = app
-        self.router_id = router_id
+        self.peer_router_id = peer_router_id
         self.trans_addr = trans_addr
+        self.state = ldp_event.LDP_STATE_NON_EXISTENT
+        self._conf = conf
         self._socket = None
         self._recv_buff = ''
-        self._state = ldp_event.LDP_STATE_NON_EXISTENT
         self._state_map = {}
         self._state_instance = None
+        self._send_lock = semaphore.Semaphore()
+        self._keepalive_send_timer = \
+            EventletIOFactory.create_looping_call(self._send_keepalive)
+        self._keepalive_timeout_timer = \
+            EventletIOFactory.create_looping_call(self.keepalive_timeout)
+        self._keepalive_time = 0
+        self._msg_id = 0
 
     def conn_handle(self, socket, is_active):
-        self._socket = socket
-        self._recv_loop()
         if is_active:
             self._state_map = self._ACTIVE_STATE_MAP
         else:
             self._state_map = self._PASSIVE_STATE_MAP
+        self._socket = socket
         self.state_change(ldp_event.LDP_STATE_INITIAL)
+        hub.spawn(self._recv_loop)
 
     def send_init(self):
-        
+        keepalive_time = self._conf.keep_alive
+        # TODO: params are to be configurable
+        tlvs = [ldp.CommonSessionParameters(proto_ver=1, keepalive_time=keepalive_time,
+                pvlim=0, max_pdu_len=0, receiver_lsr_id=self.peer_router_id,
+                receiver_label_space_id=0, a_bit=0, d_bit=0)]
+        msg = ldp.LDPInit(router_id = self._conf.router_id, msg_id = self._msg_id,
+            tlvs = tlvs)
+        self._msg_id += 1
+        self._send_with_lock(msg)
+
+    def send_keepalive(self):
+        self._keepalive_send_timer.start(self._keepalive_time / 3)
+
+    def _send_keepalive(self):
+        msg = ldp.LDPKeepAlive(router_id=self._conf.router_id, msg_id = self._msg_id,
+            tlvs=[])
+        self._send_with_lock(msg)
+
+    def keepalive_timeout(self):
+        print 'timeout'
+
+    def start_keepalive_timeout(self):
+        self._keepalive_timeout_timer.start(self._keepalive_time, now=False)
 
     def state_change(self, new_state):
         if self.state == new_state:
@@ -139,10 +171,13 @@ class Peer(object):
         old_state = self.state
         self.state = new_state
         self.state_impl = self._state_map[new_state](self)
+        print self.state_impl
+        """
         state_changed = ldp_event.EventLDPStateChanged(
             self.name, self.monitor_name, self.interface, self.config,
             old_state, new_state)
         self.send_event_to_observers(state_changed)
+        """
         self.state_impl.action()
 
     def _recv_loop(self):
@@ -191,10 +226,14 @@ class Peer(object):
             buf_len = len(self._recv_buff) - 4
             if buf_len < pdu_len:
                 return
-            msg, rest = LDPMessage.parser(self._recv_buff)
-            self._recv_buff = rest
-            # If we have a valid bgp message we call message handler.
-            self._handle_msg(msg)
+            #TODO: t
+            try:
+                msg, rest = LDPMessage.parser(self._recv_buff)
+                self._recv_buff = rest
+                # If we have a valid bgp message we call message handler.
+                self._handle_msg(msg)
+            except KeyError:
+                return
 
     def _handle_msg(self, msg):
         msg_type = msg.type
@@ -205,10 +244,11 @@ class Peer(object):
             if self.state != ldp_event.LDP_STATE_INITIAL:
                 # TODO: Notify
                 pass
+            self._handle_init(msg)
         elif msg_type == ldp.LDP_MSG_KEEPALIVE:
-            if self.state == ldp.LDP_MSG_OPERATIONAL:
+            if self.state == ldp_event.LDP_STATE_OPERATIONAL:
                 state_change = False
-            elif self.state != ldp.LDP_MSG_OPEN_REC:
+            elif self.state != ldp_event.LDP_STATE_OPEN_REC:
                 # TODO: Notiy
                 pass
         elif msg_type == ldp.LDP_MSG_SHUTDOWN:
@@ -217,21 +257,34 @@ class Peer(object):
                 pass
         else:
             state_change = False
+        print msg
 
         if state_change:
             new_state = self.state_impl.new_state()
-            self.change_state(new_state)
+            self.state_change(new_state)
         else:
             pass
             #TODO: recv event send
+
+    def _handle_init(self, msg):
+        tlv = LDPMessage.retrive_tlv(ldp.LDP_TLV_COMMON_SESSION_PARAMETERS, msg)
+        if self._conf.keep_alive < tlv.keepalive_time:
+            self._keepalive_time = self._conf.keepalive
+        else:
+            self._keepalive_time = tlv.keepalive_time
 
     @staticmethod
     def parse_msg_header(buff):
         return struct.unpack('!HH4sH', buff)
 
+    def _send_with_lock(self, msg):
+        self._send_lock.acquire()
+        try:
+            self._socket.sendall(msg.serialize())
+        finally:
+            self._send_lock.release()
 
     def connection_lost(self, reason):
         """Stops all timers and notifies peer that connection is lost.
         """
-
 

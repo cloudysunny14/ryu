@@ -27,7 +27,7 @@ class LDPManager(app_manager.RyuApp):
         self.shutdown = hub.Queue()
         self.interfaces = {}
         self.peers = {} #key interface
-        self.router_id = '0.0.0.0'
+        self.config = None
         #self.session_thread = hub.spawn(self._session_thread)
 
     def start(self):
@@ -38,14 +38,14 @@ class LDPManager(app_manager.RyuApp):
 
     @handler.set_ev_cls(ldp_event.EventLDPConfigRequest)
     def config_request_handler(self, ev):
-        config = ev.config
+        self.config = ev.config
         iface_conf = ev.interface
-        self.router_id = config.router_id
-        interface = self._new_interface(iface_conf, config)
+        interface = self._new_interface(iface_conf, self.config)
         self.interfaces[iface_conf.ip_address] = interface
         #TODO: delay timer
         interface.start()
-        rep = ldp_event.EventLDPConfigReply(self._instance_name(config.router_id), interface, config)
+        rep = ldp_event.EventLDPConfigReply(self._instance_name(self.config.router_id),
+            interface, self.config)
         self.reply_to_request(ev, rep)
 
     @handler.set_ev_cls(ldp_event.EventHelloReceived)
@@ -60,10 +60,10 @@ class LDPManager(app_manager.RyuApp):
             msg, rest = LDPMessage.parser(packet)
             peer_router_id = msg.header.router_id
             trans_addr = LDPMessage.retrive_tlv(ldp.LDP_TLV_IPV4_TRANSPORT_ADDRESS, msg)
-            peer = Peer(self, peer_router_id, trans_addr)
+            peer = Peer(self, peer_router_id, trans_addr, self.config)
             self.peers[interface] = peer
             is_active = ldp_util.from_inet_ptoi(peer_router_id) < \
-                ldp_util.from_inet_ptoi(self.router_id)
+                ldp_util.from_inet_ptoi(self.config.router_id)
             hub.spawn(self._session_thread, is_active, peer)
 
     def _new_interface(self, iface_conf, conf):
@@ -80,7 +80,7 @@ class LDPManager(app_manager.RyuApp):
             del self._instances[instance.name]
 
     def _session_thread(self, is_active, peer):
-        bind_addr = (self.router_id, LDP_DISCOVERY_PORT)
+        bind_addr = (self.config.router_id, LDP_DISCOVERY_PORT)
         sess = SessionServer(bind_addr)
         sess.start(is_active, peer.trans_addr, peer.conn_handle)
 
@@ -107,7 +107,7 @@ class SessionServer(object):
         if is_active:
             with Timeout(DEFAULT_CONN_TIMEOUT, socket.error):
                 sock = self._socket.connect(peer_addr)
-            hub.spawn(conn_handle, sock)
+            hub.spawn(conn_handle, sock, True)
         else:
             self._socket.listen(50)
             hub.spawn(self._listen_loop, conn_handle)
@@ -115,7 +115,7 @@ class SessionServer(object):
     def _listen_loop(self, conn_handle):
         while True:
             sock, client_address = self._socket.accept()
-            hub.spawn(conn_handle, sock)
+            hub.spawn(conn_handle, sock, False)
 
 class DiscoverServer(object):
 
