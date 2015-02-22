@@ -81,8 +81,11 @@ class LDPManager(app_manager.RyuApp):
 
     def _session_thread(self, is_active, peer):
         bind_addr = (self.config.router_id, LDP_DISCOVERY_PORT)
-        sess = SessionServer(bind_addr)
-        sess.start(is_active, peer.trans_addr, peer.conn_handle)
+        if is_active:
+            bind_addr = (self.config.router_id, 0)
+            sess = SessionServer(bind_addr)
+        sess.start(is_active, (peer.trans_addr.addr, LDP_DISCOVERY_PORT),
+            peer.conn_handle)
 
     def start_discover(self):
         pass
@@ -106,8 +109,8 @@ class SessionServer(object):
     def start(self, is_active, peer_addr, conn_handle):
         if is_active:
             with Timeout(DEFAULT_CONN_TIMEOUT, socket.error):
-                sock = self._socket.connect(peer_addr)
-            hub.spawn(conn_handle, sock, True)
+                self._socket.connect(peer_addr)
+            hub.spawn(conn_handle, self._socket, True)
         else:
             self._socket.listen(50)
             hub.spawn(self._listen_loop, conn_handle)

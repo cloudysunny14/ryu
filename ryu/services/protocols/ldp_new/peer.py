@@ -218,7 +218,6 @@ class Peer(object):
         while True:
             if len(self._recv_buff) < LDP_MIN_MSG_LEN:
                 return
-
             version, pdu_len, router_id, label_space_id \
                 = Peer.parse_msg_header(
                     self._recv_buff[:LDP_MIN_MSG_LEN])
@@ -228,10 +227,14 @@ class Peer(object):
                 return
             #TODO: t
             try:
-                msg, rest = LDPMessage.parser(self._recv_buff)
-                self._recv_buff = rest
+                include_header = (pdu_len > LDP_MIN_MSG_LEN)
+                while True:
+                    msg, rest = LDPMessage.parser(self._recv_buff, include_header)
+                    self._handle_msg(msg)
+                    self._recv_buff = rest
+                    if len(rest) <= LDP_MIN_MSG_LEN: break
+                    include_header = False
                 # If we have a valid bgp message we call message handler.
-                self._handle_msg(msg)
             except KeyError:
                 return
 
@@ -251,7 +254,7 @@ class Peer(object):
             elif self.state != ldp_event.LDP_STATE_OPEN_REC:
                 # TODO: Notiy
                 pass
-        elif msg_type == ldp.LDP_MSG_SHUTDOWN:
+        elif msg_type == ldp.LDP_MSG_NOTIFICATION:
             if self.state != ldp_event.LDP_STATE_OPERATIONAL:
                 #TODO: Notify
                 pass

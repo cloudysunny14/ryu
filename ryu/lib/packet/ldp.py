@@ -34,8 +34,13 @@ LDP_TLV_COMMON_HELLO_PARAM = 0x0400
 LDP_TLV_IPV4_TRANSPORT_ADDRESS = 0x0401
 LDP_TLV_COMMON_SESSION_PARAMETERS = 0x0500
 LDP_TLV_ADDRESS_LIST = 0x0101
+LDP_TLV_FEC = 0x0100
+LDP_TLV_GENERIC_LABEL = 0x0200
 LDP_TLV_SIZE = 4
 LDP_TLV_TYPE_SIZE = 2
+
+LDP_FEC_PREFIX = 2
+LDP_FEC_HOST_ADDRESS = 3
 
 class LdpExc(Exception):
     """Base ldp exception."""
@@ -165,6 +170,33 @@ class _TypeDisp(object):
             cls._REV_TYPES = rev
         return cls._REV_TYPES[targ_cls]
 
+class LDPFecElement(StringifyMixin):
+    """  """
+    fec_type = None
+    _FEC_TYPE_PACK_STR = '!B'
+    _FEC_TYPE_LEN = struct.calcsize(_FEC_TYPE_PACK_STR)
+
+    def __init__(self, buf=None, *_args, **_kwargs):
+        super(LDPFecElement, self).__init__()
+        if buf:
+            (self.fec_type,) = struct.unpack(
+                self._FEC_TYPE_PACK_STR, buf[:self._FEC_TYPE_LEN])
+            self._fec_element_info = buf[self._FEC_TYPE_LEN:]
+
+    @staticmethod
+    def get_type(buf):
+        length = struct.calcsize('B')
+        (fec_type, ) = struct.unpack('!B', buf[:length])
+        return fec_type
+
+    @staticmethod
+    def set_fec_type(subcls, fec_type):
+        assert issubclass(subcls, LDPFecElement)
+        subcls.fec_type = fec_type
+
+    def serialize(self):
+        return bytearray(struct.pack(self._FEC_TYPE_PACK_STR, self.fec_type))
+
 class LDPMessage(packet_base.PacketBase, _TypeDisp):
     """Base class for LDP messages.
 2492     0                   1                   2                   3
@@ -194,41 +226,53 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
     _MSG_ID_LEN = 4
 
     def __init__(self, type_, version=_VERSION, length = None, router_id='0.0.0.0',
-                 label_space_id=0, msg_len=None, msg_id=0, tlvs=None):
-        self.header = LDPHeader(version, length, router_id, label_space_id)
+                 label_space_id=0, msg_len=None, msg_id=0, tlvs=None,
+                 include_header=True):
+        if include_header:
+            self.header = LDPHeader(version, length, router_id, label_space_id)
         self.type = type_
         self.msg_len = msg_len
         self.msg_id = msg_id
         self.tlvs = tlvs
 
     @classmethod
-    def parser(cls, buf):
-        ldp_hdr, rest = LDPHeader.parser(buf)
+    def parser(cls, buf, include_header=True):
+        if include_header:
+            ldp_hdr, rest = LDPHeader.parser(buf)
+        else:
+            rest = buf
+            ldp_hdr = {"include_header": False}
+        print len(rest)
         (type_, msg_len, msg_id) = struct.unpack_from(cls._MSG_HDR_PACK_STR, buffer(rest))
         if len(rest) < msg_len:
             raise stream_parser.StreamParser.TooSmallException(
                 '%d < %d' % (len(rest), msg_len))
         subcls = cls._lookup_type(type_)
-        rest = rest[cls._MSG_HDR_LEN:]
+        eotlv = msg_len + cls._MSG_ID_LEN
+        tlv_bin = rest[cls._MSG_HDR_LEN:eotlv]
         tlvs = []
-        while rest:
-            tlv_type = LDPBasicTLV.get_type(rest)
-            tlv = cls.get_tlv_type(tlv_type)(rest)
+        while tlv_bin:
+            tlv_type = LDPBasicTLV.get_type(tlv_bin)
+            tlv = cls.get_tlv_type(tlv_type)(tlv_bin)
             tlvs.append(tlv)
             offset = LDP_TLV_SIZE + tlv.len
-            rest = rest[offset:]
+            tlv_bin = tlv_bin[offset:]
+        rest = rest[eotlv:]
         return subcls(msg_len=msg_len, msg_id=msg_id,
             tlvs=tlvs, **ldp_hdr), rest 
 
-    def serialize(self):
+    def serialize(self, include_header=True):
         # fixup
-        tlvs = self.serialize_tlvs()
-        self.msg_len = self._MSG_ID_LEN + len(tlvs)
-        msg = bytearray(struct.pack(self._MSG_HDR_PACK_STR, self.type,
-            self.msg_len, self.msg_id))
-        self.header.length = len(msg) + len(tlvs)
-        hdr = self.header.serialize()
-        return hdr + msg + tlvs
+        msg_bin = self.serialize_tlvs()
+        self.msg_len = self._MSG_ID_LEN + len(msg_bin)
+        msg_bin = bytearray(struct.pack(self._MSG_HDR_PACK_STR, self.type,
+            self.msg_len, self.msg_id)) + msg_bin
+        if include_header:
+            self.header.length = len(msg_bin)
+            msg_bin = self.header.serialize() + msg_bin
+        else:
+            del self.header
+        return msg_bin
 
     def serialize_tlvs(self):
         data = bytearray()
@@ -244,6 +288,7 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
 
     @classmethod
     def get_tlv_type(cls, tlv_type):
+        print tlv_type
         return cls._tlv_parsers[tlv_type]
 
     @classmethod
@@ -265,18 +310,20 @@ class LDPMessage(packet_base.PacketBase, _TypeDisp):
 class LDPHello(LDPMessage):
     """ """
     def __init__(self, version=_VERSION, length=None, msg_len=None,
-                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
         super(LDPHello, self).__init__(LDP_MSG_HELLO,
-            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len, tlvs=tlvs)
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len, tlvs=tlvs, include_header=include_header)
 
 
 @LDPMessage.register_type(LDP_MSG_INIT)
 class LDPInit(LDPMessage):
     """ """
     def __init__(self, version=_VERSION, length=None, msg_len=None,
-                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
         super(LDPInit, self).__init__(LDP_MSG_INIT,
-            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len, tlvs=tlvs)
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len, tlvs=tlvs, include_header=include_header)
 
 @LDPMessage.register_type(LDP_MSG_NOTIFICATION)
 class LDPNotification(LDPMessage):
@@ -285,21 +332,23 @@ class LDPNotification(LDPMessage):
 @LDPMessage.register_type(LDP_MSG_KEEPALIVE)
 class LDPKeepAlive(LDPMessage):
     def __init__(self, version=_VERSION, length=None, msg_len=None,
-                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
         super(LDPKeepAlive, self).__init__(LDP_MSG_KEEPALIVE,
             router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
-            tlvs=tlvs)
+            tlvs=tlvs, include_header=include_header)
 
 @LDPMessage.register_type(LDP_MSG_ADDR)
 class LDPAddress(LDPMessage):
     """ """
     def __init__(self, version=_VERSION, length=None, msg_len=None,
-                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None):
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
         super(LDPAddress, self).__init__(LDP_MSG_ADDR,
             router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
-            tlvs=tlvs)
+            tlvs=tlvs, include_header=include_header)
 
-@LDPMessage.set_tlv_type(LDP_TLV_COMMON_HELLO_PARAM)
+@LDPMessage.set_tlv_type(LDP_TLV_ADDRESS_LIST)
 class AddressList(LDPBasicTLV):
     """
     0                   1                   2                   3
@@ -329,8 +378,8 @@ class AddressList(LDPBasicTLV):
             address_len = struct.calcsize('4s')
             while addresses:
                 addr = addresses[:address_len]
+                addresses = addresses[address_len:]
                 self.address_list.append(addrconv.ipv4.bin_to_text(addr))
-                addresses = addr
         else:
             self.address_family = kwargs['address_family']
             self.address_list = kwargs['addresses']
@@ -343,6 +392,130 @@ class AddressList(LDPBasicTLV):
         self.len = len(tlv)
         return LDPBasicTLV.serialize(self) + tlv
 
+@LDPMessage.register_type(LDP_MSG_LABEL_MAPPING)
+class LDPLabelMapping(LDPMessage):
+    """ """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
+        super(LDPLabelMapping, self).__init__(LDP_MSG_LABEL_MAPPING,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
+            tlvs=tlvs, include_header=include_header)
+
+@LDPMessage.set_tlv_type(LDP_TLV_FEC)
+class Fec(LDPBasicTLV):
+    """
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |0|0| FEC (0x0100)              |      Length                   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                        FEC Element 1                          |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   ~                                                               ~
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                        FEC Element n                          |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    """
+    _fec_parsers = {}
+
+    def __init__(self, buf=None, *args, **kwargs):
+        super(Fec, self).__init__(buf, *args, **kwargs)
+        if buf:
+            rest = self._tlv_info
+            self.fec_elements = []
+            while rest:
+                fec_type = LDPFecElement.get_type(rest)
+                fec = Fec.get_fec_type(fec_type)(rest)
+                self.fec_elements.append(fec)
+                fec_len = LDPFecElement._FEC_TYPE_LEN + fec._len
+                rest = rest[fec_len:]
+        else:
+            self.fec_elements = kwargs['fec_elements']
+
+    def serialize(self):
+        tlv = bytearray()
+        for element in self.fec_elements:
+            tlv = tlv + element.serialize()
+        self.len = len(tlv)
+        return LDPBasicTLV.serialize(self) + tlv
+
+    @classmethod
+    def get_fec_type(cls, fec_type):
+        return cls._fec_parsers[fec_type]
+
+    @classmethod
+    def set_fec_type(cls, fec_type):
+        def _set_type(fec_cls):
+            fec_cls.set_fec_type(fec_cls, fec_type)
+            cls._fec_parsers[fec_cls.fec_type] = fec_cls
+            return fec_cls
+        return _set_type
+
+def pad(bin, len_):
+    assert len(bin) <= len_
+    return bin + (len_ - len(bin)) * '\0'
+
+@Fec.set_fec_type(LDP_FEC_PREFIX)
+class PrefixFecElement(LDPFecElement):
+    """
+       0                   1                   2                   3
+       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |  Prefix (2)   |     Address Family            |     PreLen    |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                     Prefix                                    |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    """
+    _PACK_STR = '!HB%ds'
+    def __init__(self, buf=None, *args, **kwargs):
+        super(PrefixFecElement, self).__init__(buf, *args, **kwargs)
+        if buf:
+            prefix_len = (len(self._fec_element_info) - struct.calcsize('HB'))
+            pack_str = self._PACK_STR % (prefix_len)
+            (self.address_type, self.element_len, prefix) = struct.unpack(
+                pack_str, self._fec_element_info)
+            self.prefix = addrconv.ipv4.bin_to_text(pad(prefix, 4))
+            self._len = struct.calcsize(pack_str)
+        else:
+            self.address_type = kwargs['address_type']
+            self.element_len = kwargs['element_len']
+            self.prefix = kwargs['prefix']
+
+    def serialize(self):
+        element = bytearray(struct.pack('!HB', self.address_type,
+            self.element_len))
+        element = element + addrconv.ipv4.text_to_bin(self.prefix)
+        return LDPFecElement.serialize(self) + element
+
+@LDPMessage.set_tlv_type(LDP_TLV_GENERIC_LABEL)
+class GenericLabel(LDPBasicTLV):
+    """
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |0|0| Generic Label (0x0200)    |      Length                   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |     Label                                                     |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    """
+    _fec_parsers = {}
+
+    _PACK_STR = '!I'
+
+    def __init__(self, buf=None, *args, **kwargs):
+        super(GenericLabel, self).__init__(buf, *args, **kwargs)
+        if buf:
+            (self.label, ) = struct.unpack(self._PACK_STR, self._tlv_info)
+        else:
+            self.label = kwargs['label']
+
+    def serialize(self):
+        tlv = bytearray(struct.pack(self._PACK_STR, self.label))
+        self.len = len(tlv)
+        return LDPBasicTLV.serialize(self) + tlv
 
 @LDPMessage.set_tlv_type(LDP_TLV_COMMON_HELLO_PARAM)
 class CommonHelloParameter(LDPBasicTLV):

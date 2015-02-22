@@ -59,4 +59,47 @@ class Test_ldp(unittest.TestCase):
         eq_(str(msg), str(msg2))
         eq_(rest, '')
 
+    def test_address_message(self):
+        addrs= ['1.1.1.1', '2.2.2.2', '3.3.3.3']
+        address_list = ldp.AddressList(address_family=1, addresses=addrs)
+        msg = ldp.LDPAddress(router_id='1.1.1.1',msg_id = 2, tlvs=[address_list])
+        binmsg = msg.serialize()
+        msg2, rest = ldp.LDPMessage.parser(binmsg)
+        eq_(str(msg), str(msg2))
+        eq_(rest, '')
+
+    def test_label_mapping(self):
+        fec_elements = [ldp.PrefixFecElement(address_type=1, element_len=32, prefix='2.2.2.2')]
+        tlvs = [ldp.Fec(fec_elements=fec_elements), ldp.GenericLabel(label=1000)]
+        msg = ldp.LDPLabelMapping(router_id='1.1.1.1',msg_id = 2, tlvs=tlvs)
+        binmsg = msg.serialize()
+        print ''.join('{:02x}'.format(x) for x in binmsg)
+        msg2, rest = ldp.LDPMessage.parser(binmsg)
+        print msg2
+        eq_(str(msg), str(msg2))
+        eq_(rest, '')
+
+    def test_sequencial_message(self):
+        addrs= ['1.1.1.1', '2.2.2.2', '3.3.3.3']
+        address_list = ldp.AddressList(address_family=1, addresses=addrs)
+        msg = ldp.LDPAddress(router_id='1.1.1.1',msg_id = 2, tlvs=[address_list])
+        binmsg = msg.serialize()
+        print ''.join('{:02x}'.format(x) for x in binmsg)
+        fec_elements = [ldp.PrefixFecElement(address_type=1, element_len=32, prefix='2.2.2.2')]
+        tlvs = [ldp.Fec(fec_elements=fec_elements), ldp.GenericLabel(label=1000)]
+        msg2 = ldp.LDPLabelMapping(router_id='1.1.1.1',msg_id = 2, tlvs=tlvs)
+        binmsg = binmsg + msg2.serialize(include_header=False)
+        print ''.join('{:02x}'.format(x) for x in binmsg)
+        msg3, rest = ldp.LDPMessage.parser(binmsg)
+        eq_(str(msg), str(msg3))
+        print ''.join('{:02x}'.format(x) for x in rest)
+        msg4, rest = ldp.LDPMessage.parser(rest, include_header=False)
+        eq_(str(msg2), str(msg4))
+        eq_(rest, '')
+
+
+
+
+
+
 
