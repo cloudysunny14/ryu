@@ -22,21 +22,16 @@ $ {"jsonrpc": "2.0", "id": 1, "method": "get_arp_table", "params" : {}}
 ...
 """  # noqa
 
-from socket import error as SocketError
-from ryu.contrib.tinyrpc.exc import InvalidReplyError
-
-
+from ryu.base import app_manager
+from ryu.controller import handler
 from ryu.app.wsgi import (
+    rpc_public,
+    WebSocketRPCServer,
     ControllerBase,
     WSGIApplication,
     websocket,
-    WebSocketRPCClient
 )
-
-from ryu.app.wsgi import rpc_public, WebSocketRPCServer
-from ryu.base import app_manager
-from ryu.topology import event
-from ryu.controller.handler import set_ev_cls
+from ryu.services.protocols.ldp import event as ldp_event
 
 WEBSOCKET_LDP_RPC_APP_INSTANCE_NAME = 'websocket_ldp_rpc_app'
 
@@ -53,10 +48,38 @@ class WebSocketLdp(app_manager.RyuApp):
             data={WEBSOCKET_LDP_RPC_APP_INSTANCE_NAME: self},
         )
         self._ws_manager = wsgi.websocketmanager
+        self._peers = {}
+        self._peer_id = 0
 
-    @rpc_public
-    def get_arp_table(self):
-        return 'resutl'
+    @handler.set_ev_cls(ldp_event.EventLDPPeerAdd)
+    def peer_add(self, ev):
+        per
+        peer_id = ev.peer_id
+        pass
+
+    @rpc_public('manager.start')
+    def manager_start(self):
+        pass
+
+    @rpc_public('adver.send_address')
+    def send_address(self, ):
+        pass
+
+    @rpc_public('adver.send_label_mapping')
+    def send_label_mapping(self, prefix, label):
+      return {'prefix': prefix, 'label': label}
+
+    @rpc_public('adver.send_label_request')
+    def send_label_request(self):
+        pass
+
+    @rpc_public('oper.notification')
+    def send_notification(self):
+        pass
+
+    @rpc_public('show.ldp_neighbor')
+    def show_ldp_neighbor(self):
+        pass
 
 class WebSocketLdpController(ControllerBase):
 
@@ -65,7 +88,7 @@ class WebSocketLdpController(ControllerBase):
             req, link, data, **config)
         self.app = data[WEBSOCKET_LDP_RPC_APP_INSTANCE_NAME]
 
-    @websocket('ldp_manager', '/ldp_manager/ws')
+    @websocket('ldp_manager', '/ldp/ws')
     def _websocket_handler(self, ws):
         rpc_client = WebSocketRPCServer(ws, self.app)
         rpc_client.serve_forever()

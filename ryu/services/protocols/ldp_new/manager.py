@@ -65,6 +65,10 @@ class LDPManager(app_manager.RyuApp):
             is_active = ldp_util.from_inet_ptoi(peer_router_id) < \
                 ldp_util.from_inet_ptoi(self.config.router_id)
             hub.spawn(self._session_thread, is_active, peer)
+    
+    @handler.set_ev_cls(ldp_event.EventLDPStateChanged)
+    def ldp_state_change(self, ev):
+        print ev
 
     def _new_interface(self, iface_conf, conf):
         server = DiscoverServer(iface_conf.ip_address)

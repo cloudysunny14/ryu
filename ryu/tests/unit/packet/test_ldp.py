@@ -97,9 +97,11 @@ class Test_ldp(unittest.TestCase):
         eq_(str(msg2), str(msg4))
         eq_(rest, '')
 
-
-
-
-
-
+    def test_notification(self):
+        tlvs = [ldp.Status(u_bit=0, f_bit=0, status_code=ldp.LDP_STATUS_HOLD_TIMER_EXPIRED, message_id=1, message_type=0)]
+        msg = ldp.LDPNotification(router_id='1.1.1.1',msg_id = 2, tlvs=tlvs)
+        binmsg = msg.serialize()
+        msg2, rest = ldp.LDPMessage.parser(binmsg)
+        eq_(str(msg), str(msg2))
+        eq_(rest, '')
 

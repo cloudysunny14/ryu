@@ -72,10 +72,11 @@ class EventLDPStateChanged(event.EventBase):
     """
     Event that this VRRP Router changed its state.
     """
-    def __init__(self, instance_name, interface, config,
+    def __init__(self, instance_name, peer, interface, config,
                  old_state, new_state):
         super(EventLDPStateChanged, self).__init__()
         self.instance_name = instance_name
+        self.peer = peer
         self.interface = interface
         self.config = config
         self.old_state = old_state

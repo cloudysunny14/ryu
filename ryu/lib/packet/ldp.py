@@ -36,8 +36,36 @@ LDP_TLV_COMMON_SESSION_PARAMETERS = 0x0500
 LDP_TLV_ADDRESS_LIST = 0x0101
 LDP_TLV_FEC = 0x0100
 LDP_TLV_GENERIC_LABEL = 0x0200
+LDP_TLV_STATUS = 0x0300
 LDP_TLV_SIZE = 4
 LDP_TLV_TYPE_SIZE = 2
+
+LDP_STATUS_SUCCESS = 0x00000000
+LDP_STATUS_BAD_LDP_IDENTIFIER = 0x00000001
+LDP_STATUS_BAD_PROTOCOL_VERSION = 0x00000002
+LDP_STATUS_BAD_PDU_LENGTH = 0x00000003
+LDP_STATUS_UNKNOWN_MESSAGE_TYPE = 0x00000004
+LDP_STATUS_BAD_MESSAGE_LENGTH = 0x00000005
+LDP_STATUS_UNKNOWN_TLV = 0x00000006
+LDP_STATUS_BAD_TLV_LENGTH = 0x00000007
+LDP_STATUS_MALFORMED_TLV_VALUE = 0x00000008
+LDP_STATUS_HOLD_TIMER_EXPIRED = 0x00000009
+LDP_STATUS_SHUTDOWN = 0x0000000A
+LDP_STATUS_LOOP_DETECTED = 0x0000000B
+LDP_STATUS_UNKNOWN_FEC = 0x0000000C
+LDP_STATUS_NO_ROUTE = 0x0000000D
+LDP_STATUS_NO_LABEL_RESOURCES = 0x0000000E
+LDP_STATUS_LABEL_RESOURCES = 0x0000000F
+LDP_STATUS_AVAILABLE_SESSION_REJECTED = 0x00000010
+LDP_STATUS_NO_HELLO_SESSION_REJECTED = 0x00000011
+LDP_STATUS_ADVERTISEMENT_MODE_SESSION_REJECTED = 0x00000012
+LDP_STATUS_MAX_PDU_LENGTH_SESSION_REJECTED = 0x00000013
+LDP_STATUS_LABEL_RANGE_KEEPALIVE_TIMER = 0x00000014
+LDP_STATUS_LABEL_REQUEST_ABORTED = 0x00000015
+LDP_STATUS_MISSING_MESSAGE = 0x00000016
+LDP_STATUS_UNSUPPORTED_ADDRESS = 0x00000017
+LDP_STATUS_SESSION_REJECTED = 0x00000018
+LDP_STATUS_BAD_KEEPALIVE_TIME = 0x00000019
 
 LDP_FEC_PREFIX = 2
 LDP_FEC_HOST_ADDRESS = 3
@@ -67,7 +95,7 @@ class LDPBasicTLV(StringifyMixin):
     def __init__(self, buf=None, *_args, **_kwargs):
         super(LDPBasicTLV, self).__init__()
         if buf:
-            (tlv_type, tlv_length) = struct.unpack(
+            (self.tlv_type, tlv_length) = struct.unpack(
                 self._BASIC_PACK_STR, buf[:LDP_TLV_SIZE])
             assert len(buf) >= tlv_length + LDP_TLV_SIZE
             self.len = tlv_length
@@ -327,7 +355,67 @@ class LDPInit(LDPMessage):
 
 @LDPMessage.register_type(LDP_MSG_NOTIFICATION)
 class LDPNotification(LDPMessage):
-    """ TODO """
+    """
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |0|   Notification (0x0001)     |      Message Length           |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                     Message ID                                |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                     Status (TLV)                              |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                     Optional Parameters                       |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+    """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
+        super(LDPNotification, self).__init__(LDP_MSG_NOTIFICATION,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len, tlvs=tlvs, include_header=include_header)
+
+@LDPMessage.set_tlv_type(LDP_TLV_STATUS)
+class Status(LDPBasicTLV):
+    """
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |U|F| Status (0x0300)           |      Length                   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                     Status Code                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                     Message ID                                |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |      Message Type             |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    """
+    _PACK_STR = '!IIH'
+    _U_BIT_MASK = 0x80
+    _U_BIT_SHIFT = 15 
+    _F_BIT_MASK = 0x40
+    _F_BIT_SHIFT = 14 
+
+    def __init__(self, buf=None, *args, **kwargs):
+        super(Status, self).__init__(buf, *args, **kwargs)
+        if buf:
+            (self.status_code, self.msg_id, self.msg_type) = \
+                struct.unpack( self._PACK_STR, self._tlv_info)
+            self.u_bit = (self.tlv_type & self._U_BIT_MASK) >> self._U_BIT_SHIFT
+            self.f_bit = (self.tlv_type & self._F_BIT_MASK) >> self._F_BIT_SHIFT
+            self.tlv_type = self.tlv_type + self.u_bit + self.f_bit
+        else:
+            self.u_bit = kwargs['u_bit'] << self._U_BIT_SHIFT
+            self.f_bit = kwargs['f_bit'] << self._F_BIT_SHIFT
+            self.status_code = kwargs['status_code']
+            self.msg_id = kwargs['message_id']
+            self.msg_type = kwargs['message_type']
+            self.tlv_type = self.tlv_type + self.u_bit + self.f_bit
+
+    def serialize(self):
+        tlv = bytearray(struct.pack(self._PACK_STR, self.status_code, self.msg_id, self.msg_type))
+        self.len = len(tlv)
+        return LDPBasicTLV.serialize(self) + tlv
 
 @LDPMessage.register_type(LDP_MSG_KEEPALIVE)
 class LDPKeepAlive(LDPMessage):

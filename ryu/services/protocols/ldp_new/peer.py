@@ -131,6 +131,9 @@ class Peer(object):
         self._keepalive_time = 0
         self._msg_id = 0
 
+    def send_event_to_observers(self, ev):
+        self._app.send_event_to_observers(ev)
+
     def conn_handle(self, socket, is_active):
         if is_active:
             self._state_map = self._ACTIVE_STATE_MAP
@@ -171,13 +174,10 @@ class Peer(object):
         old_state = self.state
         self.state = new_state
         self.state_impl = self._state_map[new_state](self)
-        print self.state_impl
-        """
         state_changed = ldp_event.EventLDPStateChanged(
-            self.name, self.monitor_name, self.interface, self.config,
+            self.name, self, self.interface, self.config,
             old_state, new_state)
         self.send_event_to_observers(state_changed)
-        """
         self.state_impl.action()
 
     def _recv_loop(self):
@@ -290,4 +290,6 @@ class Peer(object):
     def connection_lost(self, reason):
         """Stops all timers and notifies peer that connection is lost.
         """
+
+    def __str__(self):        
 
