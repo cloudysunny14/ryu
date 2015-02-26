@@ -26,12 +26,11 @@ class LDPManager(app_manager.RyuApp):
         self.name = ldp_event.LDP_MANAGER_NAME
         self.shutdown = hub.Queue()
         self.interfaces = {}
-        self.peers = {} #key interface
+        self.peers = {} #key peer router_id 
         self.config = None
         #self.session_thread = hub.spawn(self._session_thread)
 
     def start(self):
-        print 'start'
         t = hub.spawn(self._shutdown_loop)
         super(LDPManager, self).start()
         return t
@@ -50,9 +49,9 @@ class LDPManager(app_manager.RyuApp):
 
     @handler.set_ev_cls(ldp_event.EventHelloReceived)
     def hello_received(self, ev):
-        interface = ev.interface
+        router_id = ev.router_id
         packet = ev.packet
-        peer = self.peers.get(interface, None)
+        peer = self.peers.get(router_id, None)
         if peer is not None:
             #TODO: peer hold
             pass
@@ -61,7 +60,7 @@ class LDPManager(app_manager.RyuApp):
             peer_router_id = msg.header.router_id
             trans_addr = LDPMessage.retrive_tlv(ldp.LDP_TLV_IPV4_TRANSPORT_ADDRESS, msg)
             peer = Peer(self, peer_router_id, trans_addr, self.config)
-            self.peers[interface] = peer
+            self.peers[router_id] = peer
             is_active = ldp_util.from_inet_ptoi(peer_router_id) < \
                 ldp_util.from_inet_ptoi(self.config.router_id)
             hub.spawn(self._session_thread, is_active, peer)
@@ -69,6 +68,13 @@ class LDPManager(app_manager.RyuApp):
     @handler.set_ev_cls(ldp_event.EventLDPStateChanged)
     def ldp_state_change(self, ev):
         print ev
+
+    @handler.set_ev_cls(ldp_event.EventLDPSendMessage)
+    def ldp_send_message(self, ev):
+        msg = ev.msg
+        router_id = ev.router_id
+        peer = self.peers[router_id]
+        peer.send_msg(msg.serialize())
 
     def _new_interface(self, iface_conf, conf):
         server = DiscoverServer(iface_conf.ip_address)

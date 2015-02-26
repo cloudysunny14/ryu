@@ -53,7 +53,6 @@ class WebSocketLdp(app_manager.RyuApp):
 
     @handler.set_ev_cls(ldp_event.EventLDPPeerAdd)
     def peer_add(self, ev):
-        per
         peer_id = ev.peer_id
         pass
 

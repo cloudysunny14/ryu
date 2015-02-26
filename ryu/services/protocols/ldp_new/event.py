@@ -82,10 +82,19 @@ class EventLDPStateChanged(event.EventBase):
         self.old_state = old_state
         self.new_state = new_state
 
+class EventLDPMessageReceived(event.EventBase):
+    """
+    Event LDP Message Received
+    """
+    def __init__(self, instance_name, msg):
+        super(EventLDPStateChanged, self).__init__()
+        self.instance_name = instance_name
+        self.msg = msg
+
 class EventHelloReceived(event.EventBase):
-    def __init__(self, interface, packet):
+    def __init__(self, router_id, packet):
         super(EventHelloReceived, self).__init__()
-        self.interface = interface
+        self.router_id = router_id
         self.packet = packet
 
 handler.register_service('ryu.services.protocols.ldp.manager')

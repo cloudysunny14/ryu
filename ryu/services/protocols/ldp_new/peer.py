@@ -260,14 +260,14 @@ class Peer(object):
                 pass
         else:
             state_change = False
-        print msg
 
         if state_change:
             new_state = self.state_impl.new_state()
             self.state_change(new_state)
         else:
-            pass
-            #TODO: recv event send
+            msg_recv = ldp_event.EventLDPStateChanged(
+                self.name, msg)
+            self.send_event_to_observers(msg_recv)
 
     def _handle_init(self, msg):
         tlv = LDPMessage.retrive_tlv(ldp.LDP_TLV_COMMON_SESSION_PARAMETERS, msg)
@@ -280,6 +280,9 @@ class Peer(object):
     def parse_msg_header(buff):
         return struct.unpack('!HH4sH', buff)
 
+    def send_msg(self, msg):
+        self._send_with_lock(self, msg)
+
     def _send_with_lock(self, msg):
         self._send_lock.acquire()
         try:
@@ -290,6 +293,3 @@ class Peer(object):
     def connection_lost(self, reason):
         """Stops all timers and notifies peer that connection is lost.
         """
-
-    def __str__(self):        
-
