@@ -16,8 +16,8 @@ from ryu.lib.packet.ldp import LDPMessage
 
 class LDPManager(app_manager.RyuApp):
     @staticmethod
-    def _instance_name(router_id):
-        return 'LDP-%s' % (router_id)
+    def _instance_name(router_id, label_space_id):
+        return 'lsr-%s:%s' % (router_id, label_space_id)
 
     def __init__(self, *args, **kwargs):
         super(LDPManager, self).__init__(*args, **kwargs)
@@ -43,7 +43,7 @@ class LDPManager(app_manager.RyuApp):
         self.interfaces[iface_conf.ip_address] = interface
         #TODO: delay timer
         interface.start()
-        rep = ldp_event.EventLDPConfigReply(self._instance_name(self.config.router_id),
+        rep = ldp_event.EventLDPConfigReply(self._instance_name(self.config.router_id, self.config.label_space_id),
             interface, self.config)
         self.reply_to_request(ev, rep)
 
@@ -67,7 +67,7 @@ class LDPManager(app_manager.RyuApp):
     
     @handler.set_ev_cls(ldp_event.EventLDPStateChanged)
     def ldp_state_change(self, ev):
-        print ev
+        print 'state_change:%s' % (ev)
 
     @handler.set_ev_cls(ldp_event.EventLDPSendMessage)
     def ldp_send_message(self, ev):

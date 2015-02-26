@@ -151,8 +151,7 @@ class Peer(object):
                 receiver_label_space_id=0, a_bit=0, d_bit=0)]
         msg = ldp.LDPInit(router_id = self._conf.router_id, msg_id = self._msg_id,
             tlvs = tlvs)
-        self._msg_id += 1
-        self._send_with_lock(msg)
+        self.send_msg(msg)
 
     def send_keepalive(self):
         self._keepalive_send_timer.start(self._keepalive_time / 3)
@@ -160,7 +159,7 @@ class Peer(object):
     def _send_keepalive(self):
         msg = ldp.LDPKeepAlive(router_id=self._conf.router_id, msg_id = self._msg_id,
             tlvs=[])
-        self._send_with_lock(msg)
+        self.send_msg(msg)
 
     def keepalive_timeout(self):
         print 'timeout'
@@ -281,6 +280,7 @@ class Peer(object):
         return struct.unpack('!HH4sH', buff)
 
     def send_msg(self, msg):
+        self._msg_id += 1
         self._send_with_lock(self, msg)
 
     def _send_with_lock(self, msg):

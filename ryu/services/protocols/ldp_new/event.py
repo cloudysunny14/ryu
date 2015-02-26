@@ -11,11 +11,13 @@ LDP_STATE_OPERATIONAL = 'operational'
 LDP_MANAGER_NAME = 'LDPManager'
 
 class LDPConfig(object):
-    def __init__(self, router_id='0.0.0.0', ldp_port=646,
-        hold_time=15, keep_alive=180, start_delay=0):
+    def __init__(self, router_id='0.0.0.0', label_space_id=0,
+        ldp_port=646, hold_time=15, keep_alive=180,
+        start_delay=0):
         assert router_id is not None
         super(LDPConfig, self).__init__()
         self.router_id = router_id
+        self.label_space_id = label_space_id
         self.hold_time = hold_time
         self.keep_alive = keep_alive
         self.ldp_port = ldp_port
@@ -23,13 +25,15 @@ class LDPConfig(object):
 
     def __eq__(self, other):
         return (self.router_id == other.router_id and
+                self.label_space_id == other.label_space_id and
                 self.hold_time == other.hold_time and
                 self.keep_alive == other.keep_alive and
                 self.ldp_port == other.ldp_port and
                 self.start_delay == other.start_delay)
 
     def __hash__(self):
-        hash((self.router_id, self.iface, self.hold_time,
+        hash((self.router_id, self.label_space_id,
+              self.iface, self.hold_time,
               map(addrconv.ip_text_to_bin, self.router_id),
               self.hold_time, self.keep_alive,
               self.ldp_port, self.start_delay))
@@ -96,5 +100,11 @@ class EventHelloReceived(event.EventBase):
         super(EventHelloReceived, self).__init__()
         self.router_id = router_id
         self.packet = packet
+
+class EventLDPSendMessage(event.EventBase):
+    def __init__(self, peer_lsr_id, msg):
+        super(EventLDPSendMessage, self).__init__()
+        self.peer_lsr_id = peer_lsr_id
+        self.msg = msg
 
 handler.register_service('ryu.services.protocols.ldp.manager')
