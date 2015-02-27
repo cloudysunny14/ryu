@@ -124,6 +124,7 @@ class Peer(object):
         self._state_map = {}
         self._state_instance = None
         self._send_lock = semaphore.Semaphore()
+        self._
         self._keepalive_send_timer = \
             EventletIOFactory.create_looping_call(self._send_keepalive)
         self._keepalive_timeout_timer = \
@@ -163,6 +164,9 @@ class Peer(object):
 
     def keepalive_timeout(self):
         print 'timeout'
+
+    def reset_hold_timer(self):
+        self._hello_timer.reset()
 
     def start_keepalive_timeout(self):
         self._keepalive_timeout_timer.start(self._keepalive_time, now=False)

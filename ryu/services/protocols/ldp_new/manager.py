@@ -40,7 +40,7 @@ class LDPManager(app_manager.RyuApp):
         self.config = ev.config
         iface_conf = ev.interface
         interface = self._new_interface(iface_conf, self.config)
-        self.interfaces[iface_conf.ip_address] = interface
+        self.interfaces[iface_conf.device_name] = interface
         #TODO: delay timer
         interface.start()
         rep = ldp_event.EventLDPConfigReply(self._instance_name(self.config.router_id, self.config.label_space_id),
@@ -53,8 +53,7 @@ class LDPManager(app_manager.RyuApp):
         packet = ev.packet
         peer = self.peers.get(router_id, None)
         if peer is not None:
-            #TODO: peer hold
-            pass
+            peer.reset_holdtimer()
         else:
             msg, rest = LDPMessage.parser(packet)
             peer_router_id = msg.header.router_id
