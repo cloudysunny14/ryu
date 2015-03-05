@@ -28,7 +28,7 @@ LDP_MSG_LABEL_MAPPING = 0x0400
 LDP_MSG_LABEL_REQUEST = 0x0401
 LDP_MSG_LABEL_WITHDRAW = 0x0402
 LDP_MSG_LABEL_RELEASE = 0x0403
-LDP_MSG_LABEL_ABORTREQ = 0x0404
+LDP_MSG_LABEL_ABORT_REQUEST = 0x0404
 
 LDP_TLV_COMMON_HELLO_PARAM = 0x0400
 LDP_TLV_IPV4_TRANSPORT_ADDRESS = 0x0401
@@ -713,4 +713,56 @@ class CommonSessionParameters(LDPBasicTLV):
             self.receiver_label_space_id))
         self.len = len(tlv)
         return LDPBasicTLV.serialize(self) + tlv
+
+@LDPMessage.register_type(LDP_MSG_ADDRWITHDRAW)
+class LDPAddressWithdraw(LDPMessage):
+    """ """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
+        super(LDPAddressWithdraw, self).__init__(LDP_MSG_ADDRWITHDRAW,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
+            tlvs=tlvs, include_header=include_header)
+
+
+@LDPMessage.register_type(LDP_MSG_LABEL_REQUEST)
+class LDPLabelRequest(LDPMessage):
+    """ """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
+        super(LDPLabelRequest, self).__init__(LDP_MSG_LABEL_REQUEST,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
+            tlvs=tlvs, include_header=include_header)
+
+@LDPMessage.register_type(LDP_MSG_LABEL_WITHDRAW)
+class LDPLabelWithdraw(LDPMessage):
+    """ """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
+        super(LDPLabelWithdraw, self).__init__(LDP_MSG_LABEL_WITHDRAW,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
+            tlvs=tlvs, include_header=include_header)
+
+@LDPMessage.register_type(LDP_MSG_LABEL_RELEASE)
+class LDPLabelRelease(LDPMessage):
+    """ """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
+        super(LDPLabelRelease, self).__init__(LDP_MSG_LABEL_RELEASE,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
+            tlvs=tlvs, include_header=include_header)
+
+@LDPMessage.register_type(LDP_MSG_LABEL_ABORT_REQUEST)
+class LDPLabelAbortRequest(LDPMessage):
+    """ """
+    def __init__(self, version=_VERSION, length=None, msg_len=None,
+                 router_id='0.0.0.0', label_space_id=0, msg_id=0, tlvs=None,
+                 include_header=True):
+        super(LDPLabelAbortRequest, self).__init__(LDP_MSG_LABEL_ABORT_REQUEST,
+            router_id = router_id, msg_id = msg_id, length=length, msg_len=msg_len,
+            tlvs=tlvs, include_header=include_header)
+
 
