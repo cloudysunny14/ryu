@@ -1,5 +1,6 @@
 import struct
 
+from ryu.lib import addrconv
 from . import packet_base
 from . import packet_utils
 from ryu.lib.stringify import StringifyMixin
@@ -59,7 +60,7 @@ class LSPPingBasicTLV(StringifyMixin):
 
     @staticmethod
     def get_type(buf):
-        (tlv_type, ) = struct.unpack('!H', buf[:LSP_PING_TLV_SIZE])
+        (tlv_type, ) = struct.unpack('!H', buf[:LSP_PING_TYPE_SIZE])
         return tlv_type
 
     @staticmethod
@@ -75,6 +76,9 @@ class LSPPingBasicTLV(StringifyMixin):
     def serialize(self):
         return bytearray(struct.pack(self._BASIC_PACK_STR, self.tlv_type, self.len))
 
+def pad(bin, len_):
+    assert len(bin) <= len_
+    return bin + (len_ - len(bin)) * '\0'
 
 class MPLSEcho(packet_base.PacketBase):
     """
@@ -105,9 +109,10 @@ class MPLSEcho(packet_base.PacketBase):
       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
     """
-    _PACK_STR = '!HHBBBBIIQQ'
+    _PACK_STR = '!HHBBBBIIIIII'
     _PACK_LEN = struct.calcsize(_PACK_STR)
     _MSG_TYPES = {}
+    _tlv_parsers = {}
 
     def __init__(self, type=MPLS_ECHO_REQUEST, version=_VERSION, v_flag=0, reply_mode=None, return_code=0, return_sub_code=0, senders_handle=None, sequence_num=0, timestamp_sent=0, timestamp_recv=0, tlvs=None):
         self.type = type
@@ -126,31 +131,37 @@ class MPLSEcho(packet_base.PacketBase):
     def parser(cls, buf):
         (version, global_flag, type_,
             reply_mode, return_code, return_sub_code, 
-            senders_handle, sequence_num, timestamp_sent,
-            timestamp_recv) = struct.unpack_from(cls._PACK_STR, buf)
+            senders_handle, sequence_num, timestamp_sent_1,
+            timestamp_sent_2, timestamp_recv_1,
+            timestamp_recv_2) = struct.unpack_from(cls._PACK_STR, buf)
         rest = buf[cls._PACK_LEN:]
         tlvs = []
         while rest:
+            print ''.join('{:02x}'.format(x) for x in rest)
             tlv_type = LSPPingBasicTLV.get_type(rest)
             tlv = cls.get_tlv_type(tlv_type)(rest)
             tlvs.append(tlv)
             offset = LSP_PING_TLV_SIZE + tlv.len
             rest = rest[offset:]
 
+        timestamp_sent = float(timestamp_sent_1) + timestamp_sent_2 * (10 ** -6) 
+        timestamp_recv = float(timestamp_recv_1) + timestamp_recv_2 * (10 ** -6)
         return cls(type=type_, version=version,
             v_flag=global_flag, reply_mode=reply_mode,
             return_code=return_code, return_sub_code=return_sub_code,
             senders_handle=senders_handle, sequence_num=sequence_num, 
-            timestamp_sent=timestamp_sent, timestamp_recv=timestamp_recv), rest 
+            timestamp_sent=timestamp_sent, timestamp_recv=timestamp_recv, tlvs=tlvs), rest
         
     def serialize(self):
         msg_bin = self.serialize_tlvs()
+        ts_1, ts_2 = [int(t) for t in ("%.6f" % self.timestamp_sent).split('.')]
+        tr_1, tr_2 = [int(t) for t in ("%.6f" % self.timestamp_recv).split('.')]
         msg_bin = bytearray(struct.pack(self._PACK_STR, 
-            self.type, self.v_flag, self.reply_mode,
+            self.version, self.v_flag, self.type, 
+            self.reply_mode,
             self.return_code, self.return_sub_code,
             self.senders_handle, self.sequence_num,
-            self.timestamp_sent, self.timestamp_recv,
-            self.tlvs)) + msg_bin
+            ts_1, ts_2, tr_1, tr_2)) + msg_bin
         return msg_bin
 
     def serialize_tlvs(self):
@@ -184,17 +195,18 @@ class MPLSEcho(packet_base.PacketBase):
 
 @MPLSEcho.set_tlv_type(TARGET_FEC_STACK)
 class TargetFecStack(LSPPingBasicTLV):
+    _sub_tlv_parsers = {}
     def __init__(self, buf=None, *args, **kwargs):
         super(TargetFecStack, self).__init__(buf, *args, **kwargs)
         if buf:
             rest = self._tlv_info
             self.sub_tlvs = []
             while rest:
-                tlv_type = LSPPingBasicTLV.get_type(rest)
-                tlv = TargetFecStack.get_tlv_type(tlv_type)(rest)
+                tlv_type = TargetFecStack.get_sub_type(rest)
+                tlv = TargetFecStack.get_sub_tlv_type(tlv_type)(rest)
                 self.sub_tlvs.append(tlv)
                 sub_tlv_len = \
-                  LSPPingBasicTLV._BASIC_PACK_LEN + tlv._len
+                  LSPPingBasicTLV._BASIC_PACK_LEN + len(tlv)
                 rest = rest[sub_tlv_len:]
         else:
             self.sub_tlvs = kwargs['sub_tlvs']
@@ -207,6 +219,11 @@ class TargetFecStack(LSPPingBasicTLV):
         return LSPPingBasicTLV.serialize(self) + tlv
 
     @classmethod
+    def get_sub_type(cls, buf):
+        (tlv_type, ) = struct.unpack('!H', buf[:LSP_PING_TYPE_SIZE])
+        return tlv_type
+
+    @classmethod
     def get_sub_tlv_type(cls, sub_tlv_type):
         return cls._sub_tlv_parsers[sub_tlv_type]
 
@@ -214,11 +231,12 @@ class TargetFecStack(LSPPingBasicTLV):
     def set_sub_tlv_type(cls, sub_tlv_type):
         def _set_type(sub_tlv_cls):
             sub_tlv_cls.set_sub_tlv_type(sub_tlv_cls, sub_tlv_type)
-            cls._tlv_parsers[sub_tlv_cls.tlv_type] = sub_tlv_cls 
+            cls._sub_tlv_parsers[sub_tlv_cls.tlv_type] = sub_tlv_cls 
+            print str(cls._sub_tlv_parsers)
             return sub_tlv_cls 
         return _set_type
 
-@TargetFecStack.set_sub_tlv_type()
+@TargetFecStack.set_sub_tlv_type(LDP_IPV4_PREFIX)
 class IPv4PrefixTLV(LSPPingBasicTLV):
     """
        0                   1                   2                   3
@@ -230,24 +248,26 @@ class IPv4PrefixTLV(LSPPingBasicTLV):
       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     """
 
-    _PACK_STR = '!%dsB'
+    _PACK_STR = '!4sB'
+    _LEN = struct.calcsize(_PACK_STR)
+    _FIXED_LEN = 8
+
     def __init__(self, buf=None, *args, **kwargs):
         super(IPv4PrefixTLV, self).__init__(buf, *args, **kwargs)
         if buf:
-            prefix_len = (len(self._fec_element_info) - struct.calcsize('HB'))
-            pack_str = self._PACK_STR % (prefix_len)
-            (self.address_type, self.element_len, prefix) = struct.unpack(
-                pack_str, self._fec_element_info)
-            self.prefix = addrconv.ipv4.bin_to_text(pad(prefix, 4))
-            self._len = struct.calcsize(pack_str)
+            (prefix, self.prefix_len) = \
+                struct.unpack(self._PACK_STR, self._tlv_info)
+            self.prefix = addrconv.ipv4.bin_to_text(prefix)
         else:
-            self.address_type = kwargs['address_type']
-            self.element_len = kwargs['element_len']
             self.prefix = kwargs['prefix']
+            self.prefix_len = kwargs['prefix_len']
 
     def serialize(self):
-        element = bytearray(struct.pack('!HB', self.address_type,
-            self.element_len))
-        element = element + addrconv.ipv4.text_to_bin(self.prefix)
+        tlv = bytearray(struct.pack("B", self.prefix_len))
+        tlv = pad(tlv, 4)
+        tlv = addrconv.ipv4.text_to_bin(self.prefix) + tlv
+        self.len = self._LEN
         return LSPPingBasicTLV.serialize(self) + tlv
 
+    def __len__(self):
+        return 8
